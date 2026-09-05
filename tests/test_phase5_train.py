@@ -473,7 +473,6 @@ def test_short_training_run_decreases_loss_on_real_batches():
     set_default_dtype(np.float32)
     nn.set_seed(0)
     V = 32
-    rng = np.random.default_rng(0)
     # A learnable pattern: token t is always followed by (t*7+3) mod V.
     seq = np.zeros(6000, dtype=np.int64)
     seq[0] = 1

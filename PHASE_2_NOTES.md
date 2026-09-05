@@ -71,8 +71,8 @@ cannot generate.
   Asserted on gradients spanning three orders of magnitude (`2.0`, `-3.0`, `1e-3`)
   with mixed signs, all producing a step of exactly `±0.1` at `lr=0.1`. Without
   bias correction the same step would be `(1-β₁)/√(1-β₂) = 3.162` times larger in
-  the ratio, i.e. **31× the intended learning rate on step one** — the assertion
-  separates the two implementations by that factor.
+  the ratio, i.e. **3.16× the intended learning rate on step one** — the
+  assertion separates the two implementations by that factor.
 - **Bit-exact against a textbook implementation.** The fused bias correction
   (folding both corrections into one step size `lr·√(1-β₂ᵗ)/(1-β₁ᵗ)` to avoid two
   full-size temporaries per parameter per step) is only a valid optimisation if it

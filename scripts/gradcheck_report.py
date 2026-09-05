@@ -100,7 +100,7 @@ def main() -> int:
             failures += 1
             print(f"{name:<22} {len(inputs):<8} {'--':>16}   FAIL\n    {exc}")
     print("-" * 62)
-    print(f"{len(CASES) - failures}/{len(CASES)} operations certified")
+    print(f"{len(CASES) - failures}/{len(CASES)} operation configurations certified")
     return 1 if failures else 0
 
 

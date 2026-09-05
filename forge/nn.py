@@ -317,6 +317,7 @@ def softmax(x: Tensor, axis: int = -1) -> Tensor:
     def bw(g):
         a._accumulate(y * (g - (g * y).sum(axis=axis, keepdims=True)))
 
+
     return Tensor._make(y, (a,), "softmax", bw)
 
 
@@ -380,6 +381,7 @@ def gelu(x: Tensor) -> Tensor:
     def bw(g):
         du_dx = _GELU_C * (1.0 + 3.0 * _GELU_K * xd * xd)
         a._accumulate(g * (0.5 * (1.0 + t) + 0.5 * xd * (1.0 - t * t) * du_dx))
+
 
     return Tensor._make(y, (a,), "gelu", bw)
 

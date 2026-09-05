@@ -10,7 +10,7 @@ that fail silently rather than loudly:
 * **Causal masking** -- tested for real leakage, forward *and* backward, using
   inputs constructed so that a leak would dominate the output if it existed.
 * **Adam's bias correction** -- pinned by an exact closed-form value on the first
-  step, which is the one step where a naive implementation differs by 31x.
+  step, which is the one step where a naive implementation overshoots by 3.16x.
 """
 
 from __future__ import annotations
@@ -575,7 +575,7 @@ def test_adam_first_step_is_exactly_lr_times_sign_of_gradient():
     At t=1, m̂ = g and v̂ = g², so the update is exactly lr·g/(|g|+ε) ≈ lr·sign(g),
     *independent of the gradient's magnitude*. Without bias correction the same
     step would be lr·(0.1·g)/√(0.001·g²) = 31.6·lr·sign(g) -- so this single
-    assertion separates the correct implementation from the naive one by 31x.
+    assertion separates the correct implementation from the naive one by 3.16x.
     """
     p = nn.Parameter(np.array([5.0, -5.0, 5.0]))
     # Magnitudes spanning three orders, and one negative gradient to pin the sign:
@@ -585,13 +585,29 @@ def test_adam_first_step_is_exactly_lr_times_sign_of_gradient():
     assert p.data == pytest.approx([5.0 - 0.1, -5.0 + 0.1, 5.0 - 0.1], abs=1e-5)
 
 
-def test_adam_without_bias_correction_would_overshoot_by_31x():
-    """Negative control for the test above: quantify what the naive version does."""
-    b2 = 0.999
-    naive_first_step_multiplier = (1 - 0.9) / np.sqrt(1 - b2)
-    assert naive_first_step_multiplier == pytest.approx(3.162, rel=1e-3)
-    # Relative to the corrected step of exactly 1.0 x lr:
-    assert naive_first_step_multiplier / 1.0 > 3.0
+def test_adam_without_bias_correction_would_overshoot_by_3x():
+    """Negative control for the test above: quantify what the naive version does.
+
+    Two factors are easy to confuse here, and getting them mixed up overstates
+    the effect by 10x:
+
+      1/√(1-β₂)          = 31.6   -- the factor if only v were left uncorrected
+      (1-β₁)/√(1-β₂)     =  3.16  -- the *actual* overshoot, both uncorrected
+
+    The naive update at t=1 is lr·(1-β₁)g / √((1-β₂)g²) = 3.16·lr·sign(g), against
+    the corrected lr·sign(g). So it is 3.16x, not 31x. Computed here rather than
+    asserted as a literal, so the arithmetic is visible.
+    """
+    b1, b2, lr, eps = 0.9, 0.999, 0.1, 1e-8
+    g = np.array([2.0])
+    m, v = (1 - b1) * g, (1 - b2) * g * g
+
+    corrected = lr * (m / (1 - b1)) / (np.sqrt(v / (1 - b2)) + eps)
+    naive = lr * m / (np.sqrt(v) + eps)
+
+    assert corrected[0] == pytest.approx(lr, rel=1e-6)          # exactly lr
+    assert naive[0] / corrected[0] == pytest.approx(3.1623, rel=1e-3)
+    assert (1 - b1) / np.sqrt(1 - b2) == pytest.approx(3.1623, rel=1e-3)
 
 
 def test_adam_moves_parameters_downhill_on_a_toy_convex_loss():

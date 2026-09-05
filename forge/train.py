@@ -9,12 +9,11 @@ from __future__ import annotations
 import csv
 import json
 import math
-import time
 from pathlib import Path
 
 import numpy as np
 
-from .tensor import Tensor, no_grad
+from .tensor import no_grad
 
 __all__ = [
     "CosineWarmupSchedule",

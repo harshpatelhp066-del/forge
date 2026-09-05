@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from forge import nn  # noqa: E402
 from forge.model import GPT, GPTConfig  # noqa: E402
 from forge.optim import Adam  # noqa: E402
-from forge.tensor import Tensor, set_default_dtype  # noqa: E402
+from forge.tensor import set_default_dtype  # noqa: E402
 
 
 def tiny(**over) -> GPTConfig:
@@ -322,7 +322,6 @@ def test_residual_stream_variance_stays_bounded_with_depth():
 
 def test_positional_embedding_actually_distinguishes_positions():
     """Without it, the model is permutation-invariant and cannot learn order."""
-    cfg = tiny()
     model = make().eval()
     idx = np.full((1, 6), 3)                   # the same token everywhere
     logits = model(idx).data

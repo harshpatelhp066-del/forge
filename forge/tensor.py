@@ -8,6 +8,14 @@ from the output back to those parents.  Calling :meth:`Tensor.backward` walks th
 graph in reverse topological order and invokes each closure exactly once, so
 every node's ``.grad`` is complete before it is used.
 
+One detail is load-bearing and easy to get wrong: a backward closure receives the
+output's gradient as an *argument* rather than reading it off the output node.
+Capturing the output would make every node part of an ``out -> closure -> out``
+reference cycle, which reference counting cannot collect -- so whole graphs would
+survive until Python's cyclic collector happened to run.  That is a memory design
+decision, not a style one; it is what makes a training run's working set bounded.
+See PHASE_5_NOTES.md.
+
 Everything else in Forge -- layers, attention, the optimizer, the GPT model --
 is written on top of this file.  Nothing here imports a framework.
 """
@@ -282,11 +290,11 @@ class Tensor:
         a, b = self, other
 
         def bw(g):
-            g = g
             if a.requires_grad:
                 a._accumulate(_unbroadcast(g, a.data.shape))
             if b.requires_grad:
                 b._accumulate(_unbroadcast(g, b.data.shape))
+
         return Tensor._make(a.data + b.data, (a, b), "add", bw)
 
     def __mul__(self, other) -> "Tensor":
@@ -294,11 +302,11 @@ class Tensor:
         a, b = self, other
 
         def bw(g):
-            g = g
             if a.requires_grad:
                 a._accumulate(_unbroadcast(g * b.data, a.data.shape))
             if b.requires_grad:
                 b._accumulate(_unbroadcast(g * a.data, b.data.shape))
+
         return Tensor._make(a.data * b.data, (a, b), "mul", bw)
 
     def __neg__(self) -> "Tensor":
@@ -306,6 +314,7 @@ class Tensor:
 
         def bw(g):
             a._accumulate(-g)
+
         return Tensor._make(-a.data, (a,), "neg", bw)
 
     def __sub__(self, other) -> "Tensor":
@@ -313,11 +322,11 @@ class Tensor:
         a, b = self, other
 
         def bw(g):
-            g = g
             if a.requires_grad:
                 a._accumulate(_unbroadcast(g, a.data.shape))
             if b.requires_grad:
                 b._accumulate(_unbroadcast(-g, b.data.shape))
+
         return Tensor._make(a.data - b.data, (a, b), "sub", bw)
 
     def __truediv__(self, other) -> "Tensor":
@@ -325,11 +334,11 @@ class Tensor:
         a, b = self, other
 
         def bw(g):
-            g = g
             if a.requires_grad:
                 a._accumulate(_unbroadcast(g / b.data, a.data.shape))
             if b.requires_grad:
                 b._accumulate(_unbroadcast(-g * a.data / (b.data * b.data), b.data.shape))
+
         return Tensor._make(a.data / b.data, (a, b), "div", bw)
 
     def __pow__(self, other) -> "Tensor":
@@ -338,13 +347,13 @@ class Tensor:
         val = a.data ** b.data
 
         def bw(g):
-            g = g
             if a.requires_grad:
                 a._accumulate(_unbroadcast(g * b.data * (a.data ** (b.data - 1)), a.data.shape))
             if b.requires_grad:
                 # d/db a**b = a**b * ln(a); only defined for a > 0.
                 safe_log = np.log(np.where(a.data > 0, a.data, 1.0))
                 b._accumulate(_unbroadcast(g * val * safe_log, b.data.shape))
+
         return Tensor._make(val, (a, b), "pow", bw)
 
     def __matmul__(self, other) -> "Tensor":
@@ -370,6 +379,7 @@ class Tensor:
             if b.requires_grad:
                 gB = np.swapaxes(A, -1, -2) @ G
                 b._accumulate(_unbroadcast(gB, B.shape).reshape(b.data.shape))
+
         return Tensor._make(a.data @ b.data, (a, b), "matmul", bw)
 
     # Reflected variants -- scalars and NumPy arrays on the left-hand side.
@@ -401,6 +411,7 @@ class Tensor:
 
         def bw(g):
             a._accumulate(g * val)
+
         return Tensor._make(val, (a,), "exp", bw)
 
     def log(self) -> "Tensor":
@@ -408,6 +419,7 @@ class Tensor:
 
         def bw(g):
             a._accumulate(g / a.data)
+
         return Tensor._make(np.log(a.data), (a,), "log", bw)
 
     def sqrt(self) -> "Tensor":
@@ -416,6 +428,7 @@ class Tensor:
 
         def bw(g):
             a._accumulate(g * 0.5 / val)
+
         return Tensor._make(val, (a,), "sqrt", bw)
 
     def tanh(self) -> "Tensor":
@@ -424,6 +437,7 @@ class Tensor:
 
         def bw(g):
             a._accumulate(g * (1.0 - val * val))
+
         return Tensor._make(val, (a,), "tanh", bw)
 
     def abs(self) -> "Tensor":
@@ -431,6 +445,7 @@ class Tensor:
 
         def bw(g):
             a._accumulate(g * np.sign(a.data))
+
         return Tensor._make(np.abs(a.data), (a,), "abs", bw)
 
     def relu(self) -> "Tensor":
@@ -439,6 +454,7 @@ class Tensor:
 
         def bw(g):
             a._accumulate(g * mask)
+
         return Tensor._make(a.data * mask, (a,), "relu", bw)
 
     def sigmoid(self) -> "Tensor":
@@ -452,6 +468,7 @@ class Tensor:
 
         def bw(g):
             a._accumulate(g * z * (1.0 - z))
+
         return Tensor._make(z, (a,), "sigmoid", bw)
 
     # ------------------------------------------------------------------ #
@@ -464,6 +481,7 @@ class Tensor:
 
         def bw(g):
             a._accumulate(_expand_dims_for_reduction(g, shape, axis, keepdims))
+
         return Tensor._make(a.data.sum(axis=axis, keepdims=keepdims), (a,), "sum", bw)
 
     def mean(self, axis=None, keepdims: bool = False) -> "Tensor":
@@ -477,6 +495,7 @@ class Tensor:
 
         def bw(g):
             a._accumulate(_expand_dims_for_reduction(g, shape, axis, keepdims) / n)
+
         return Tensor._make(a.data.mean(axis=axis, keepdims=keepdims), (a,), "mean", bw)
 
     def max(self, axis=None, keepdims: bool = False) -> "Tensor":
@@ -495,6 +514,7 @@ class Tensor:
             )
             g = _expand_dims_for_reduction(g, shape, axis, keepdims)
             a._accumulate(g * hits / counts)
+
         return Tensor._make(val, (a,), "max", bw)
 
     def min(self, axis=None, keepdims: bool = False) -> "Tensor":
@@ -518,6 +538,7 @@ class Tensor:
 
         def bw(g):
             a._accumulate(g.reshape(orig))
+
         return Tensor._make(a.data.reshape(shape), (a,), "reshape", bw)
 
     def view(self, *shape) -> "Tensor":
@@ -538,6 +559,7 @@ class Tensor:
 
         def bw(g):
             a._accumulate(g.transpose(inverse))
+
         return Tensor._make(a.data.transpose(axes), (a,), "transpose", bw)
 
     def permute(self, *axes) -> "Tensor":
@@ -554,6 +576,7 @@ class Tensor:
 
         def bw(g):
             a._accumulate(_unbroadcast(g, orig))
+
         return Tensor._make(np.broadcast_to(a.data, shape).copy(), (a,), "broadcast_to", bw)
 
     def __getitem__(self, idx) -> "Tensor":
@@ -571,6 +594,7 @@ class Tensor:
             buf = np.zeros_like(a.data)
             np.add.at(buf, key, g)
             a._accumulate(buf)
+
         return Tensor._make(a.data[key], (a,), "getitem", bw)
 
     # ------------------------------------------------------------------ #
@@ -611,11 +635,11 @@ class Tensor:
         y = y if isinstance(y, Tensor) else Tensor(y)
 
         def bw(g):
-            g = g
             if x.requires_grad:
                 x._accumulate(_unbroadcast(np.where(cond, g, 0.0), x.data.shape))
             if y.requires_grad:
                 y._accumulate(_unbroadcast(np.where(cond, 0.0, g), y.data.shape))
+
         return Tensor._make(np.where(cond, x.data, y.data), (x, y), "where", bw)
 
     def masked_fill(self, mask, value: float) -> "Tensor":
@@ -632,6 +656,7 @@ class Tensor:
 
         def bw(g):
             a._accumulate(_unbroadcast(g * keep, a.data.shape))
+
         return Tensor._make(np.where(m, value, a.data), (a,), "masked_fill", bw)
 
     # ------------------------------------------------------------------ #
@@ -679,6 +704,7 @@ class Tensor:
                 sl = [slice(None)] * g.ndim
                 sl[axis] = slice(bounds[i], bounds[i + 1])
                 t._accumulate(g[tuple(sl)])
+
         return Tensor._make(
             np.concatenate([t.data for t in tensors], axis=axis), tensors, "concat", bw
         )
