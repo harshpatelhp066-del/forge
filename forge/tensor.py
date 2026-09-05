@@ -102,7 +102,7 @@ def _expand_dims_for_reduction(grad: np.ndarray, shape: tuple, axis, keepdims: b
     return np.broadcast_to(grad, shape)
 
 
-def _noop() -> None:
+def _noop(g) -> None:
     """Backward function for leaves and detached nodes."""
     return None
 
@@ -195,20 +195,38 @@ class Tensor:
 
     @staticmethod
     def _make(data, parents, op: str, backward_fn) -> "Tensor":
-        """Build an output Tensor, wiring it into the graph only if needed."""
+        """Build an output Tensor, wiring it into the graph only if needed.
+
+        ``backward_fn`` takes the output's gradient as an *argument*.  It must not
+        close over the output tensor: a closure that reads ``out.grad`` creates an
+        ``out -> closure -> out`` reference cycle, which reference counting can
+        never break, so the entire graph -- every activation buffer in it --
+        survives until the cyclic collector happens to run.  With multi-megabyte
+        activations that is the difference between a bounded working set and an
+        out-of-memory crash mid-training.  See PHASE_5_NOTES.md.
+        """
         needs = _GRAD_ENABLED and any(p.requires_grad for p in parents)
         if not needs:
             return Tensor(data, requires_grad=False, _op=op)
         out = Tensor(data, requires_grad=True, _children=parents, _op=op)
-        out._backward = backward_fn(out)
+        out._backward = backward_fn
         return out
 
-    def backward(self, gradient=None) -> None:
+    def backward(self, gradient=None, retain_grads: bool = False) -> None:
         """Reverse-mode sweep, populating ``.grad`` on every node that needs it.
 
         ``gradient`` seeds the output adjoint; it defaults to ones, which is only
         meaningful for a scalar output, so a non-scalar output without an explicit
         seed raises rather than silently implying a sum.
+
+        ``retain_grads=False`` (the default) frees each *intermediate* node's
+        ``.grad`` as soon as its backward closure has run.  An intermediate's
+        adjoint is read exactly once -- by its own closure, to push into its
+        parents -- so holding it afterwards serves no purpose but roughly doubles
+        peak memory, since the gradient buffers are the same size as the forward
+        activations they shadow.  Leaves (inputs and parameters) always keep
+        their gradients; they have no closure and are what the optimizer reads.
+        Set ``retain_grads=True`` to inspect an intermediate's gradient.
         """
         if gradient is None:
             if self.data.size != 1:
@@ -244,7 +262,13 @@ class Tensor:
 
         self.grad = np.array(gradient, copy=True)
         for node in reversed(topo):
-            node._backward()
+            g = node.grad
+            if g is not None:
+                # A node can be reachable yet receive nothing -- e.g. the
+                # zero-gradient side of a `where`. Its parents get nothing either.
+                node._backward(g)
+            if not retain_grads and node._prev and node is not self:
+                node.grad = None
 
     # ------------------------------------------------------------------ #
     # Arithmetic
@@ -257,89 +281,71 @@ class Tensor:
         other = self._coerce(other)
         a, b = self, other
 
-        def make_bw(out):
-            def bw():
-                g = out.grad
-                if a.requires_grad:
-                    a._accumulate(_unbroadcast(g, a.data.shape))
-                if b.requires_grad:
-                    b._accumulate(_unbroadcast(g, b.data.shape))
-            return bw
-
-        return Tensor._make(a.data + b.data, (a, b), "add", make_bw)
+        def bw(g):
+            g = g
+            if a.requires_grad:
+                a._accumulate(_unbroadcast(g, a.data.shape))
+            if b.requires_grad:
+                b._accumulate(_unbroadcast(g, b.data.shape))
+        return Tensor._make(a.data + b.data, (a, b), "add", bw)
 
     def __mul__(self, other) -> "Tensor":
         other = self._coerce(other)
         a, b = self, other
 
-        def make_bw(out):
-            def bw():
-                g = out.grad
-                if a.requires_grad:
-                    a._accumulate(_unbroadcast(g * b.data, a.data.shape))
-                if b.requires_grad:
-                    b._accumulate(_unbroadcast(g * a.data, b.data.shape))
-            return bw
-
-        return Tensor._make(a.data * b.data, (a, b), "mul", make_bw)
+        def bw(g):
+            g = g
+            if a.requires_grad:
+                a._accumulate(_unbroadcast(g * b.data, a.data.shape))
+            if b.requires_grad:
+                b._accumulate(_unbroadcast(g * a.data, b.data.shape))
+        return Tensor._make(a.data * b.data, (a, b), "mul", bw)
 
     def __neg__(self) -> "Tensor":
         a = self
 
-        def make_bw(out):
-            def bw():
-                a._accumulate(-out.grad)
-            return bw
-
-        return Tensor._make(-a.data, (a,), "neg", make_bw)
+        def bw(g):
+            a._accumulate(-g)
+        return Tensor._make(-a.data, (a,), "neg", bw)
 
     def __sub__(self, other) -> "Tensor":
         other = self._coerce(other)
         a, b = self, other
 
-        def make_bw(out):
-            def bw():
-                g = out.grad
-                if a.requires_grad:
-                    a._accumulate(_unbroadcast(g, a.data.shape))
-                if b.requires_grad:
-                    b._accumulate(_unbroadcast(-g, b.data.shape))
-            return bw
-
-        return Tensor._make(a.data - b.data, (a, b), "sub", make_bw)
+        def bw(g):
+            g = g
+            if a.requires_grad:
+                a._accumulate(_unbroadcast(g, a.data.shape))
+            if b.requires_grad:
+                b._accumulate(_unbroadcast(-g, b.data.shape))
+        return Tensor._make(a.data - b.data, (a, b), "sub", bw)
 
     def __truediv__(self, other) -> "Tensor":
         other = self._coerce(other)
         a, b = self, other
 
-        def make_bw(out):
-            def bw():
-                g = out.grad
-                if a.requires_grad:
-                    a._accumulate(_unbroadcast(g / b.data, a.data.shape))
-                if b.requires_grad:
-                    b._accumulate(_unbroadcast(-g * a.data / (b.data * b.data), b.data.shape))
-            return bw
-
-        return Tensor._make(a.data / b.data, (a, b), "div", make_bw)
+        def bw(g):
+            g = g
+            if a.requires_grad:
+                a._accumulate(_unbroadcast(g / b.data, a.data.shape))
+            if b.requires_grad:
+                b._accumulate(_unbroadcast(-g * a.data / (b.data * b.data), b.data.shape))
+        return Tensor._make(a.data / b.data, (a, b), "div", bw)
 
     def __pow__(self, other) -> "Tensor":
         other = self._coerce(other)
         a, b = self, other
         val = a.data ** b.data
 
-        def make_bw(out):
-            def bw():
-                g = out.grad
-                if a.requires_grad:
-                    a._accumulate(_unbroadcast(g * b.data * (a.data ** (b.data - 1)), a.data.shape))
-                if b.requires_grad:
-                    # d/db a**b = a**b * ln(a); only defined for a > 0.
-                    safe_log = np.log(np.where(a.data > 0, a.data, 1.0))
-                    b._accumulate(_unbroadcast(g * val * safe_log, b.data.shape))
-            return bw
-
-        return Tensor._make(val, (a, b), "pow", make_bw)
+        def bw(g):
+            g = g
+            if a.requires_grad:
+                a._accumulate(_unbroadcast(g * b.data * (a.data ** (b.data - 1)), a.data.shape))
+            if b.requires_grad:
+                # d/db a**b = a**b * ln(a); only defined for a > 0.
+                safe_log = np.log(np.where(a.data > 0, a.data, 1.0))
+                b._accumulate(_unbroadcast(g * val * safe_log, b.data.shape))
+        return Tensor._make(val, (a, b), "pow", bw)
 
     def __matmul__(self, other) -> "Tensor":
         other = self._coerce(other)
@@ -348,26 +354,23 @@ class Tensor:
         if a_nd == 0 or b_nd == 0:
             raise ValueError("matmul does not accept 0-d operands")
 
-        def make_bw(out):
-            def bw():
-                # Promote 1-D operands to 2-D so one code path covers every case,
-                # then fold the promoted axis back out of the resulting gradient.
-                A = a.data if a_nd > 1 else a.data[None, :]
-                B = b.data if b_nd > 1 else b.data[:, None]
-                G = out.grad
-                if a_nd == 1:
-                    G = np.expand_dims(G, -2)
-                if b_nd == 1:
-                    G = np.expand_dims(G, -1)
-                if a.requires_grad:
-                    gA = G @ np.swapaxes(B, -1, -2)
-                    a._accumulate(_unbroadcast(gA, A.shape).reshape(a.data.shape))
-                if b.requires_grad:
-                    gB = np.swapaxes(A, -1, -2) @ G
-                    b._accumulate(_unbroadcast(gB, B.shape).reshape(b.data.shape))
-            return bw
-
-        return Tensor._make(a.data @ b.data, (a, b), "matmul", make_bw)
+        def bw(g):
+            # Promote 1-D operands to 2-D so one code path covers every case,
+            # then fold the promoted axis back out of the resulting gradient.
+            A = a.data if a_nd > 1 else a.data[None, :]
+            B = b.data if b_nd > 1 else b.data[:, None]
+            G = g
+            if a_nd == 1:
+                G = np.expand_dims(G, -2)
+            if b_nd == 1:
+                G = np.expand_dims(G, -1)
+            if a.requires_grad:
+                gA = G @ np.swapaxes(B, -1, -2)
+                a._accumulate(_unbroadcast(gA, A.shape).reshape(a.data.shape))
+            if b.requires_grad:
+                gB = np.swapaxes(A, -1, -2) @ G
+                b._accumulate(_unbroadcast(gB, B.shape).reshape(b.data.shape))
+        return Tensor._make(a.data @ b.data, (a, b), "matmul", bw)
 
     # Reflected variants -- scalars and NumPy arrays on the left-hand side.
     def __radd__(self, other):
@@ -396,65 +399,47 @@ class Tensor:
         a = self
         val = np.exp(a.data)
 
-        def make_bw(out):
-            def bw():
-                a._accumulate(out.grad * val)
-            return bw
-
-        return Tensor._make(val, (a,), "exp", make_bw)
+        def bw(g):
+            a._accumulate(g * val)
+        return Tensor._make(val, (a,), "exp", bw)
 
     def log(self) -> "Tensor":
         a = self
 
-        def make_bw(out):
-            def bw():
-                a._accumulate(out.grad / a.data)
-            return bw
-
-        return Tensor._make(np.log(a.data), (a,), "log", make_bw)
+        def bw(g):
+            a._accumulate(g / a.data)
+        return Tensor._make(np.log(a.data), (a,), "log", bw)
 
     def sqrt(self) -> "Tensor":
         a = self
         val = np.sqrt(a.data)
 
-        def make_bw(out):
-            def bw():
-                a._accumulate(out.grad * 0.5 / val)
-            return bw
-
-        return Tensor._make(val, (a,), "sqrt", make_bw)
+        def bw(g):
+            a._accumulate(g * 0.5 / val)
+        return Tensor._make(val, (a,), "sqrt", bw)
 
     def tanh(self) -> "Tensor":
         a = self
         val = np.tanh(a.data)
 
-        def make_bw(out):
-            def bw():
-                a._accumulate(out.grad * (1.0 - val * val))
-            return bw
-
-        return Tensor._make(val, (a,), "tanh", make_bw)
+        def bw(g):
+            a._accumulate(g * (1.0 - val * val))
+        return Tensor._make(val, (a,), "tanh", bw)
 
     def abs(self) -> "Tensor":
         a = self
 
-        def make_bw(out):
-            def bw():
-                a._accumulate(out.grad * np.sign(a.data))
-            return bw
-
-        return Tensor._make(np.abs(a.data), (a,), "abs", make_bw)
+        def bw(g):
+            a._accumulate(g * np.sign(a.data))
+        return Tensor._make(np.abs(a.data), (a,), "abs", bw)
 
     def relu(self) -> "Tensor":
         a = self
         mask = (a.data > 0).astype(a.data.dtype)
 
-        def make_bw(out):
-            def bw():
-                a._accumulate(out.grad * mask)
-            return bw
-
-        return Tensor._make(a.data * mask, (a,), "relu", make_bw)
+        def bw(g):
+            a._accumulate(g * mask)
+        return Tensor._make(a.data * mask, (a,), "relu", bw)
 
     def sigmoid(self) -> "Tensor":
         a = self
@@ -465,12 +450,9 @@ class Tensor:
         e = np.exp(a.data[~pos])
         z[~pos] = e / (1.0 + e)
 
-        def make_bw(out):
-            def bw():
-                a._accumulate(out.grad * z * (1.0 - z))
-            return bw
-
-        return Tensor._make(z, (a,), "sigmoid", make_bw)
+        def bw(g):
+            a._accumulate(g * z * (1.0 - z))
+        return Tensor._make(z, (a,), "sigmoid", bw)
 
     # ------------------------------------------------------------------ #
     # Reductions
@@ -480,12 +462,9 @@ class Tensor:
         a = self
         shape = a.data.shape
 
-        def make_bw(out):
-            def bw():
-                a._accumulate(_expand_dims_for_reduction(out.grad, shape, axis, keepdims))
-            return bw
-
-        return Tensor._make(a.data.sum(axis=axis, keepdims=keepdims), (a,), "sum", make_bw)
+        def bw(g):
+            a._accumulate(_expand_dims_for_reduction(g, shape, axis, keepdims))
+        return Tensor._make(a.data.sum(axis=axis, keepdims=keepdims), (a,), "sum", bw)
 
     def mean(self, axis=None, keepdims: bool = False) -> "Tensor":
         a = self
@@ -496,33 +475,27 @@ class Tensor:
             axes = (axis,) if isinstance(axis, int) else tuple(axis)
             n = int(np.prod([shape[ax] for ax in axes]))
 
-        def make_bw(out):
-            def bw():
-                a._accumulate(_expand_dims_for_reduction(out.grad, shape, axis, keepdims) / n)
-            return bw
-
-        return Tensor._make(a.data.mean(axis=axis, keepdims=keepdims), (a,), "mean", make_bw)
+        def bw(g):
+            a._accumulate(_expand_dims_for_reduction(g, shape, axis, keepdims) / n)
+        return Tensor._make(a.data.mean(axis=axis, keepdims=keepdims), (a,), "mean", bw)
 
     def max(self, axis=None, keepdims: bool = False) -> "Tensor":
         a = self
         shape = a.data.shape
         val = a.data.max(axis=axis, keepdims=keepdims)
 
-        def make_bw(out):
-            def bw():
-                expanded_val = _expand_dims_for_reduction(np.asarray(val), shape, axis, keepdims)
-                # Ties split the gradient evenly.  That keeps the adjoint a valid
-                # subgradient and matches what a symmetric finite difference
-                # measures at a tie, so the gradient checker stays meaningful.
-                hits = (a.data == expanded_val).astype(a.data.dtype)
-                counts = _expand_dims_for_reduction(
-                    hits.sum(axis=axis, keepdims=keepdims), shape, axis, keepdims
-                )
-                g = _expand_dims_for_reduction(out.grad, shape, axis, keepdims)
-                a._accumulate(g * hits / counts)
-            return bw
-
-        return Tensor._make(val, (a,), "max", make_bw)
+        def bw(g):
+            expanded_val = _expand_dims_for_reduction(np.asarray(val), shape, axis, keepdims)
+            # Ties split the gradient evenly.  That keeps the adjoint a valid
+            # subgradient and matches what a symmetric finite difference
+            # measures at a tie, so the gradient checker stays meaningful.
+            hits = (a.data == expanded_val).astype(a.data.dtype)
+            counts = _expand_dims_for_reduction(
+                hits.sum(axis=axis, keepdims=keepdims), shape, axis, keepdims
+            )
+            g = _expand_dims_for_reduction(g, shape, axis, keepdims)
+            a._accumulate(g * hits / counts)
+        return Tensor._make(val, (a,), "max", bw)
 
     def min(self, axis=None, keepdims: bool = False) -> "Tensor":
         return -((-self).max(axis=axis, keepdims=keepdims))
@@ -543,12 +516,9 @@ class Tensor:
         a = self
         orig = a.data.shape
 
-        def make_bw(out):
-            def bw():
-                a._accumulate(out.grad.reshape(orig))
-            return bw
-
-        return Tensor._make(a.data.reshape(shape), (a,), "reshape", make_bw)
+        def bw(g):
+            a._accumulate(g.reshape(orig))
+        return Tensor._make(a.data.reshape(shape), (a,), "reshape", bw)
 
     def view(self, *shape) -> "Tensor":
         return self.reshape(*shape)
@@ -566,12 +536,9 @@ class Tensor:
         a = self
         inverse = tuple(int(i) for i in np.argsort(axes))
 
-        def make_bw(out):
-            def bw():
-                a._accumulate(out.grad.transpose(inverse))
-            return bw
-
-        return Tensor._make(a.data.transpose(axes), (a,), "transpose", make_bw)
+        def bw(g):
+            a._accumulate(g.transpose(inverse))
+        return Tensor._make(a.data.transpose(axes), (a,), "transpose", bw)
 
     def permute(self, *axes) -> "Tensor":
         return self.transpose(*axes)
@@ -585,12 +552,9 @@ class Tensor:
         a = self
         orig = a.data.shape
 
-        def make_bw(out):
-            def bw():
-                a._accumulate(_unbroadcast(out.grad, orig))
-            return bw
-
-        return Tensor._make(np.broadcast_to(a.data, shape).copy(), (a,), "broadcast_to", make_bw)
+        def bw(g):
+            a._accumulate(_unbroadcast(g, orig))
+        return Tensor._make(np.broadcast_to(a.data, shape).copy(), (a,), "broadcast_to", bw)
 
     def __getitem__(self, idx) -> "Tensor":
         """Indexing / gather.
@@ -603,14 +567,11 @@ class Tensor:
         a = self
         key = idx.data.astype(np.int64) if isinstance(idx, Tensor) else idx
 
-        def make_bw(out):
-            def bw():
-                buf = np.zeros_like(a.data)
-                np.add.at(buf, key, out.grad)
-                a._accumulate(buf)
-            return bw
-
-        return Tensor._make(a.data[key], (a,), "getitem", make_bw)
+        def bw(g):
+            buf = np.zeros_like(a.data)
+            np.add.at(buf, key, g)
+            a._accumulate(buf)
+        return Tensor._make(a.data[key], (a,), "getitem", bw)
 
     # ------------------------------------------------------------------ #
     # Comparisons and masking
@@ -649,16 +610,13 @@ class Tensor:
         x = x if isinstance(x, Tensor) else Tensor(x)
         y = y if isinstance(y, Tensor) else Tensor(y)
 
-        def make_bw(out):
-            def bw():
-                g = out.grad
-                if x.requires_grad:
-                    x._accumulate(_unbroadcast(np.where(cond, g, 0.0), x.data.shape))
-                if y.requires_grad:
-                    y._accumulate(_unbroadcast(np.where(cond, 0.0, g), y.data.shape))
-            return bw
-
-        return Tensor._make(np.where(cond, x.data, y.data), (x, y), "where", make_bw)
+        def bw(g):
+            g = g
+            if x.requires_grad:
+                x._accumulate(_unbroadcast(np.where(cond, g, 0.0), x.data.shape))
+            if y.requires_grad:
+                y._accumulate(_unbroadcast(np.where(cond, 0.0, g), y.data.shape))
+        return Tensor._make(np.where(cond, x.data, y.data), (x, y), "where", bw)
 
     def masked_fill(self, mask, value: float) -> "Tensor":
         """Replace entries where ``mask`` is truthy with ``value``.
@@ -672,12 +630,9 @@ class Tensor:
         m = m.astype(bool)
         keep = (~m).astype(a.data.dtype)
 
-        def make_bw(out):
-            def bw():
-                a._accumulate(_unbroadcast(out.grad * keep, a.data.shape))
-            return bw
-
-        return Tensor._make(np.where(m, value, a.data), (a,), "masked_fill", make_bw)
+        def bw(g):
+            a._accumulate(_unbroadcast(g * keep, a.data.shape))
+        return Tensor._make(np.where(m, value, a.data), (a,), "masked_fill", bw)
 
     # ------------------------------------------------------------------ #
     # Constructors
@@ -717,16 +672,13 @@ class Tensor:
         sizes = [t.data.shape[axis] for t in tensors]
         bounds = np.cumsum([0] + sizes)
 
-        def make_bw(out):
-            def bw():
-                for i, t in enumerate(tensors):
-                    if not t.requires_grad:
-                        continue
-                    sl = [slice(None)] * out.grad.ndim
-                    sl[axis] = slice(bounds[i], bounds[i + 1])
-                    t._accumulate(out.grad[tuple(sl)])
-            return bw
-
+        def bw(g):
+            for i, t in enumerate(tensors):
+                if not t.requires_grad:
+                    continue
+                sl = [slice(None)] * g.ndim
+                sl[axis] = slice(bounds[i], bounds[i + 1])
+                t._accumulate(g[tuple(sl)])
         return Tensor._make(
-            np.concatenate([t.data for t in tensors], axis=axis), tensors, "concat", make_bw
+            np.concatenate([t.data for t in tensors], axis=axis), tensors, "concat", bw
         )

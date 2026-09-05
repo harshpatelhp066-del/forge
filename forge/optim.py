@@ -155,10 +155,16 @@ def clip_grad_norm(parameters, max_norm: float) -> float:
             total_sq += float(np.sum(p.grad.astype(np.float64) ** 2))
     total_norm = float(np.sqrt(total_sq))
 
+    if not np.isfinite(total_norm):
+        # An inf or NaN gradient cannot be rescaled into a useful one: scaling by
+        # max_norm/inf = 0 would turn every inf into NaN and quietly corrupt the
+        # buffers. Leave them exactly as they are and report the non-finite norm,
+        # so the caller can skip the step -- which the training loop does.
+        return total_norm
+
     if max_norm is not None and total_norm > max_norm:
-        # The 1e-6 guards the degenerate case of a norm that is huge but finite;
-        # if total_norm is inf or nan the scale becomes 0 or nan, so that is
-        # checked by the caller (the training loop skips such steps).
+        # The 1e-6 keeps the divisor away from zero for a norm that is huge but
+        # finite, where max_norm/total_norm could otherwise underflow.
         scale = max_norm / (total_norm + 1e-6)
         for g in grads:
             g *= scale

@@ -27,3 +27,5 @@ Thumbs.db
 pytest-cache-files-*/
 data/*.npy
 data/tokenizer_*.json
+checkpoints_train.log
+*.tmp.*

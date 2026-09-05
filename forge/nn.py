@@ -25,8 +25,10 @@ __all__ = [
     "Sequential",
     "MultiHeadSelfAttention",
     "softmax",
+    "softmax_composed",
     "log_softmax",
     "gelu",
+    "gelu_composed",
     "relu",
     "cross_entropy",
     "set_seed",
@@ -274,8 +276,8 @@ class Dropout(Module):
 # Activations and losses (functions, not layers)
 # --------------------------------------------------------------------------- #
 
-def softmax(x: Tensor, axis: int = -1) -> Tensor:
-    """Numerically stable softmax.
+def softmax_composed(x: Tensor, axis: int = -1) -> Tensor:
+    """Numerically stable softmax, composed from primitives.
 
     ``exp`` overflows in float32 above ~88, and attention logits routinely exceed
     that, so the row max is subtracted first.  Softmax is invariant to that shift,
@@ -285,10 +287,37 @@ def softmax(x: Tensor, axis: int = -1) -> Tensor:
     than differentiated through.  That is not an approximation: the shift cancels
     exactly in the forward value, so its derivative contribution is exactly zero.
     Detaching just avoids putting a ``max`` node and its scatter on the tape.
+
+    Kept as the reference implementation.  :func:`softmax` is the fused version
+    used in the model, and a test asserts the two agree in value and gradient.
     """
     m = Tensor(x.data.max(axis=axis, keepdims=True))
     e = (x - m).exp()
     return e / e.sum(axis=axis, keepdims=True)
+
+
+def softmax(x: Tensor, axis: int = -1) -> Tensor:
+    """Numerically stable softmax as a single fused op.
+
+    Same value as :func:`softmax_composed`, but it retains one buffer (the
+    output) instead of four, which matters because the attention scores it is
+    applied to are the largest tensors in the model at ``(B, H, T, T)``.
+
+    The backward is the standard softmax Jacobian-vector product,
+    ``dx = y ⊙ (g - Σ(g ⊙ y))``, derived from ``∂yᵢ/∂xⱼ = yᵢ(δᵢⱼ - yⱼ)``.  Writing
+    it directly rather than composing it also avoids materialising the
+    intermediate adjoints, and it is certified against finite differences in the
+    Phase 2 tests exactly like every primitive in Phase 1.
+    """
+    a = x
+    shifted = a.data - a.data.max(axis=axis, keepdims=True)
+    e = np.exp(shifted)
+    y = e / e.sum(axis=axis, keepdims=True)
+
+    def bw(g):
+        a._accumulate(y * (g - (g * y).sum(axis=axis, keepdims=True)))
+
+    return Tensor._make(y, (a,), "softmax", bw)
 
 
 def log_softmax(x: Tensor, axis: int = -1) -> Tensor:
@@ -305,17 +334,54 @@ def log_softmax(x: Tensor, axis: int = -1) -> Tensor:
     return z - z.exp().sum(axis=axis, keepdims=True).log()
 
 
-def gelu(x: Tensor) -> Tensor:
-    """GELU, tanh approximation (the GPT-2 formulation).
+_GELU_C = math.sqrt(2.0 / math.pi)
+_GELU_K = 0.044715
+
+
+def gelu_composed(x: Tensor) -> Tensor:
+    """GELU, tanh approximation (the GPT-2 formulation), composed from primitives.
 
     The exact form uses ``erf``, which NumPy does not provide as a ufunc; a
     ``math.erf`` loop or a SciPy dependency would both be worse than the tanh
     approximation, which agrees with the exact form to within ~1e-3 absolute
     across the whole range and is what GPT-2 itself shipped.
+
+    Kept as the reference implementation.  :func:`gelu` is the fused version used
+    in the model, and a test asserts the two agree in value and gradient.
     """
-    c = math.sqrt(2.0 / math.pi)
-    inner = (x + (x * x * x) * 0.044715) * c
+    inner = (x + (x * x * x) * _GELU_K) * _GELU_C
     return x * 0.5 * (inner.tanh() + 1.0)
+
+
+def gelu(x: Tensor) -> Tensor:
+    """GELU (tanh approximation) as a single fused op.
+
+    Identical in value to :func:`gelu_composed`, but it retains one buffer
+    instead of nine.  GELU is applied to the ``(B, T, 4·d_model)`` feed-forward
+    expansion -- the widest activation in the model -- so the composed form's
+    chain of temporaries was the single largest consumer of graph memory,
+    measured at ~30% of the total.
+
+    Backward, with ``u = c(x + kx³)`` and ``t = tanh(u)``:
+
+        dy/dx = 0.5(1 + t) + 0.5·x·(1 - t²)·c·(1 + 3kx²)
+
+    the first term being the derivative of the ``0.5x`` factor and the second the
+    chain rule through ``tanh``.  Certified against finite differences alongside
+    every other op.
+    """
+    a = x
+    xd = a.data
+    x3 = xd * xd * xd
+    u = _GELU_C * (xd + _GELU_K * x3)
+    t = np.tanh(u)
+    y = 0.5 * xd * (1.0 + t)
+
+    def bw(g):
+        du_dx = _GELU_C * (1.0 + 3.0 * _GELU_K * xd * xd)
+        a._accumulate(g * (0.5 * (1.0 + t) + 0.5 * xd * (1.0 - t * t) * du_dx))
+
+    return Tensor._make(y, (a,), "gelu", bw)
 
 
 def relu(x: Tensor) -> Tensor:

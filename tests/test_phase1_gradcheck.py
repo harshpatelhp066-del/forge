@@ -460,12 +460,10 @@ def test_gradient_checker_detects_a_deliberately_wrong_gradient(scale):
     def bad_square(x: Tensor) -> Tensor:
         val = x.data * x.data
 
-        def make_bw(out):
-            def bw():
-                x._accumulate(out.grad * 2.0 * x.data * scale)
-            return bw
+        def bw(g):
+            x._accumulate(g * 2.0 * x.data * scale)
 
-        return Tensor._make(val, (x,), "bad_square", make_bw)
+        return Tensor._make(val, (x,), "bad_square", bw)
 
     a = Tensor([1.0, 2.0, 3.0], requires_grad=True)
     with pytest.raises(AssertionError, match="gradient check failed"):
@@ -479,14 +477,12 @@ def test_gradient_checker_detects_a_deliberately_wrong_gradient(scale):
 def test_gradient_checker_detects_a_wrong_gradient_on_a_single_entry():
     """A bug confined to one element of a large tensor must not average away."""
     def bad_sum(x: Tensor) -> Tensor:
-        def make_bw(out):
-            def bw():
-                g = np.broadcast_to(out.grad, x.data.shape).copy()
-                g.flat[17] *= 1.01           # one entry, 1% off
-                x._accumulate(g)
-            return bw
+        def bw(g):
+            gx = np.broadcast_to(g, x.data.shape).copy()
+            gx.flat[17] *= 1.01              # one entry, 1% off
+            x._accumulate(gx)
 
-        return Tensor._make(x.data.sum(), (x,), "bad_sum", make_bw)
+        return Tensor._make(x.data.sum(), (x,), "bad_sum", bw)
 
     a = T((5, 8), 0)
     with pytest.raises(AssertionError, match="1/40 entries outside"):
