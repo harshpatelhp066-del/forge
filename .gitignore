@@ -25,3 +25,5 @@ Thumbs.db
 .vscode/
 .idea/
 pytest-cache-files-*/
+data/*.npy
+data/tokenizer_*.json
