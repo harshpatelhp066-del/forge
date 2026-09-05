@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+
+# Corpus. Downloaded on demand by scripts/download_data.py (tiny-shakespeare,
+# public domain). Not committed: it is 1.1 MB of text reproducible with one
+# command, and a data file in git history is a data file forever.
+data/*.txt
+
+# Model weights. A checkpoint is ~50-100 MB of float32 and changes completely
+# every run, so committing them would bloat the repo without making anything
+# reproducible -- the training command and the fixed seed do that instead.
+# The artefacts that DO prove the model trained are committed:
+#   checkpoints/loss_curve.csv, checkpoints/loss_curve.png, samples/*.txt
+checkpoints/*.npz
+checkpoints/*.pkl
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+pytest-cache-files-*/
