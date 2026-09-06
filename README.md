@@ -9,9 +9,9 @@ repository is computed by an engine in [`forge/tensor.py`](forge/tensor.py), and
 every layer is composed from ops that engine knows how to differentiate.**
 
 ```
-loss 6.93 (uniform baseline)  ────────────►  {{FINAL_VAL}} validation
-{{PARAMS}} parameters · {{LAYERS}} layers · {{HEADS}} heads · {{DMODEL}} d_model · {{CTX}}-token context
-{{TESTS}} tests · {{GRADOPS}} operation configurations certified against finite differences
+loss 6.93 (uniform baseline)  ────────────►  3.5931 validation
+940,800 parameters · 4 layers · 4 heads · 128 d_model · 128-token context
+436 tests · 31 operation configurations certified against finite differences
 ```
 
 ---
@@ -140,23 +140,23 @@ flowchart LR
 ## Results
 
 **Corpus**: [tiny-shakespeare](https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt),
-1,115,394 characters, public domain. Tokenized to {{TOTAL_TOKENS}} BPE tokens
-(vocab 1024), split {{TRAIN_TOKENS}} train / {{VAL_TOKENS}} validation.
+1,115,394 characters, public domain. Tokenized to 459,760 BPE tokens
+(vocab 1024), split 413,784 train / 45,976 validation.
 
 | | |
 |---|---|
-| Parameters | **{{PARAMS}}** ({{PARAMS_NE}} non-embedding) |
-| Architecture | {{LAYERS}} layers, {{HEADS}} heads, d_model {{DMODEL}}, d_ff {{DFF}}, context {{CTX}} |
-| Training | {{STEPS}} steps × {{BATCH}} × {{CTX}} tokens = {{TOTAL_TRAINED}} tokens ({{EPOCHS}} epochs) |
+| Parameters | **940,800** (793,344 non-embedding) |
+| Architecture | 4 layers, 4 heads, d_model 128, d_ff 512, context 128 |
+| Training | 2500 steps × 32 × 128 tokens = 10.2M tokens (24.7 epochs) |
 | Uniform baseline | ln(1024) = **6.9315** |
-| Final train loss | **{{FINAL_TRAIN}}** |
-| Final val loss | **{{FINAL_VAL}}** |
-| Best val loss | **{{BEST_VAL}}** |
-| Wall clock | {{ELAPSED}} on CPU ({{SPS}} s/step) |
+| Final train loss | **3.0967** |
+| Final val loss | **3.5931** |
+| Best val loss | **3.5931** |
+| Wall clock | 1h59m on CPU (2.87 s/step) |
 
 ![loss curve](checkpoints/loss_curve.png)
 
-Both curves fall together and validation tracks training — {{VAL_COMMENT}}
+Both curves fall together and validation tracks training — validation reaches its minimum at the **final step**, never turning back up, so the run was stopped by the step budget rather than by overfitting. Train and validation separate by 0.50 nats, the mild gap expected when a 413,784-token corpus is revisited 25 times with dropout 0.2 and weight decay 0.1.
 
 ### Generated text: before vs. after
 
@@ -165,19 +165,51 @@ Same prompt, same sampling settings (`temperature=0.8`, `top_k=40`), same seed.
 **Step 0 — untrained** (loss ≈ 6.93, uniform over the vocabulary):
 
 ```
-{{SAMPLE_EARLY}}
+ROMEO::�asseak� upAU youAB)usareimRO pray housele enwnroV thoughtinin Cloneone hon- wordat� alTis� hath so life lifeorabwnwnigh sw Y friends�eeterter� whenam bet thisestTheYou^� en been son EDWARD�ee� princeLILI ru bearTH8 meW[�Here'sim knLEtheYour�LO hor offore wellThou death death hathhe'd�That 'EL e& whe�Nowother allless EININeakFallLANUSUKE grace grace graceifeifeife but letro l come�ENTIOENTIOO by by whoH sp sp who sp} ent}}� ha�ence har> y tellGRHisJ WthepButpise app W
 ```
 
-**Step {{MID_STEP}} — partially trained** (loss {{MID_LOSS}}):
+**Step 1000 — partially trained** (loss 3.8284):
 
 ```
-{{SAMPLE_MID}}
+ROMEO:
+I would not, my lord, formand.
+
+ROMEO:
+What is the tears.
+
+KING RICHARD III:
+Marry of the king, with thy cold to thee?
+
+JULIET:
+Provost.
+
+DUCHESS OF YORK:
+Ay, if you hear me to live to see
+I doubly, I will make them?
 ```
 
-**Fully trained** (val loss {{FINAL_VAL}}):
+**Fully trained** (val loss 3.5931):
 
 ```
-{{SAMPLE_FINAL}}
+ROMEO:
+I say you, my lord, is a care;
+But how I was not wapp'd to see my grieed.
+
+JULIET:
+I would not a words be so; for this!
+
+ROMEO:
+I should be not to do; I would have not stay,
+I cannot do not stay with thee, I less, I have,
+As when he not be your tender draitor.
+
+Nurse:
+I, though though I hadst be want;
+Where is this day as thou art thou wilt belielden a sad,
+Had he not for the wounds, and chast thy wit's foison,
+Which, thou be so greater, wonder why, sounds,
+And if thou wilt dost hear
+And what thou shalt know'st not the seasure.
 ```
 
 The full set across every checkpoint is in
@@ -188,7 +220,7 @@ The full set across every checkpoint is in
 ## Verification
 
 Correctness is the point of this project, so it is worth being specific about
-what is actually checked. **{{TESTS}} tests**, run with `python -m pytest tests/`.
+what is actually checked. **436 tests**, run with `python -m pytest tests/`.
 
 ### The gradient checker (Phase 1)
 
@@ -199,7 +231,7 @@ by accident.
 
 ```
 $ python scripts/gradcheck_report.py
-{{GRADOPS}}/{{GRADOPS}} operation configurations certified   (rtol=1e-06, atol=1e-09, h=1e-5, float64)
+31/31 operation configurations certified   (rtol=1e-06, atol=1e-09, h=1e-5, float64)
 typical relative error: ~2e-10
 ```
 
@@ -228,7 +260,7 @@ passes everything would have silently blessed the whole project.
 Requires Python 3.11+ and about 1.3 GB of RAM.
 
 ```bash
-git clone https://github.com/{{REPO}}.git
+git clone https://github.com/harshpatelhp066-del/forge.git
 cd forge
 pip install -r requirements.txt
 ```
@@ -247,10 +279,10 @@ python scripts/gradcheck_report.py
 python scripts/prepare_data.py --vocab-size 1024
 ```
 
-**3. Train** (~{{ELAPSED_MIN}} minutes on a CPU):
+**3. Train** (~120 minutes on a CPU):
 
 ```bash
-python scripts/train.py --steps {{STEPS}} --dropout 0.2 --lr 3e-3
+python scripts/train.py --steps 2500 --dropout 0.2 --lr 3e-3
 ```
 
 Writes `checkpoints/loss_curve.{csv,png}`, `run_summary.json`, and a checkpoint
@@ -285,7 +317,7 @@ forge/
   data.py         Phase 4 — DataLoader, train/val split, shuffled batching
   train.py        Phase 5 — LR schedule, checkpointing, evaluation, plotting
 scripts/          prepare_data.py, train.py, generate.py, gradcheck_report.py
-tests/            435 tests, one file per phase
+tests/            436 tests, one file per phase
 PHASE_N_NOTES.md  What was verified in each phase, and the real tradeoffs
 ```
 
@@ -308,7 +340,7 @@ The gap is large and worth being precise about.
 
 ### Scale
 
-{{PARAMS}} parameters against GPT-3's 175 billion — roughly **{{SCALE_FACTOR}}×
+940,800 parameters against GPT-3's 175 billion — roughly **186,012×
 smaller**. Trained on ~1 MB of text; GPT-3 saw ~570 GB. The model learns
 Shakespeare's *surface form* — speaker labels, line breaks, verse rhythm,
 plausible word shapes — and some local grammar. It does not learn meaning, and

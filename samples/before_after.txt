@@ -1,0 +1,387 @@
+Forge — generated samples across training
+prompt='\n'  temperature=0.8  top_k=40  seed=0
+
+==============================================================================
+checkpoint: step_000000.npz   step 0   loss 6.9290
+==============================================================================
+
+ment�5
+apizen ri riWhy rest learee�ioTWho them n gOO W heart heart if tong tongeeteet friain� alWheanAs mo moriYouho al I as pray� sirHassassusee2 c�ter word so& e�� V�INC�Tis�� ar afTIO cour W faWheTisTisWheLIWhe faowerulurseaughtThen youLOUC myself myself leorsABEL� liection way now� down down�ISare downVWheWhe heaven3 alallli�,--A li liison shallߥHere�H�akakighINCENTIO l have cl God cour 'ousieINCENTIOpat app part fa partad< r th twRANOOr>� have fa couraughter will willthe appTIO Cwick l�auseROMEOLOUCNayNayighction lO W God~ andizenance sw� pl their-Nay again< muchoughtEL th� come~ine sirISABELLA7 their tw�ow where>'s wayISressassissV<> bear God themO plour muchie spigh-EL�igh IIHis�Nay presadizen these theseatch<iz th thissause comeard Godp rDWARDDWARDard dis� havead seeIIOINCENTIOpsO Wple goneGRardHisHisselfNowCORIOLANUSueab cannot haINCENTIO brother�ieIING sp spatherWilt riCORIOLANUS
+
+==============================================================================
+checkpoint: step_000250.npz   step 250   loss 4.1905
+==============================================================================
+
+WARE:
+But is not be done to
+But, is a right,
+
+Com I'll be gone as heardons, and I have I see thee, the fievereign,
+DIUS:
+He,
+Husishebuipark the wise.
+
+WARENCE:
+ISABELLA:
+LUS:
+
+Oy is agelope
+And yet so, they say my lord, that stre you wick, and gial, be distious,
+I praying,
+But,
+I'll in this foolamer for a husisile forfand.
+
+I:
+Crewell, forns,
+Why,
+
+To am I have been manch yourself forth to thy drimed,
+What I'll fell to watch of
+The Lord my strashominion,
+The till, he,
+What label'd,
+
+For in the winds a could not, sistershipose of you shall be I should temnople feaport, first of the king,
+And I tribalse,
+That they would be gone with my king in the command,
+And,
+Aponty, we would for
+
+==============================================================================
+checkpoint: step_000500.npz   step 500   loss 3.9794
+==============================================================================
+
+DUKE VINCENTIO:
+Why, we would not sold
+You fieve your fall you!
+Onatunder them in his hands, my lord.
+GRE:
+HORD:
+I am.
+The master, and the thosed, and the sent.
+
+CORIOLANUS:
+Shall I didst thou do't with power.
+DUKE VINCENTIO:
+CORIOLANUS:
+Ay:
+No fullience is ange, sir?
+BENES:
+STell, good lords! and trike yourself,
+Thy, he was he didst to you are into the depic.
+ROMEO:
+
+Come, my lady, what say, sir!
+
+HENRY VIAtuneween the boy and my mother's deed,
+Thus, and all the sevent the sorrow;
+For never have laying-mand forging of the nates,
+Of the queen's hand,
+Ballesidiusbest a power, and the Ty day, which do I would be state, for the duke of fooplaying in the day,
+And inty
+But then, weep this time and let us of his own chargunting,
+Comery chequest d
+
+==============================================================================
+checkpoint: step_000750.npz   step 750   loss 3.7623
+==============================================================================
+
+WARGE:
+Wake me well be, what, wearry-day
+Give me in peace than this in his parle.
+
+LUCIO:
+I am a cause, is a king;
+Which, and the chard, and the sle fire.
+
+BENESCAMILUS:
+Ay, sir, that we will not inde, I did tell
+With whomborn'd once: what would I amenry
+That is a debandsand
+Which a fight upon your chappy, and my fault;
+For either first to does and all, but I must
+And talk me from the grand to be side the drengland.
+Now, I had but forward's none,
+And what the cause of me.
+
+BIST:
+Then, I to me, in your grace, and weark
+To while we must behost, the fathersh, heir?
+
+CALUS:
+O heaven, then I'll give me infereign,
+Therefore you not so, for him not a man,
+And for a cailous acted from thy peace with my hands,
+To puneget, of pury, which weep
+
+==============================================================================
+checkpoint: step_001000.npz   step 1000   loss 3.7532
+==============================================================================
+
+SAR:
+No, but we are brought
+In a man. For I will,
+To say you to die well age the cheery,
+Of mine earthy to feach.
+
+Second Senator:
+Ourderer:
+And besteeling, we were to hearing.
+Thou hast thou art thou canst my brothersand,
+So many turn outward; which was another,
+Best thou shame, as thou, thou, thou art thy since
+And become I resand,
+And thou but thy fast my life.
+
+KING EDWARD IV:
+Away, if a chemmand'stand!
+
+KING EDWARD IV:
+There is my liege, what thou canstand wilt;
+But so, my souls to drave,
+They is gone: I have no five sorrow
+The vovern'd, and all town'd up,
+Dothing of the veness of your honour,
+Looking Edward, where was he had be reven,
+And peace for me to see
+For sooth a king,
+And werehe, as this same of heavens,
+When he hath been to say to back to the lay.
+
+KING RICHARD III:
+
+
+==============================================================================
+checkpoint: step_001250.npz   step 1250   loss 3.7271
+==============================================================================
+
+And you, a word to have been cause of
+In a grave piece to-bly to your peace with your fathers,
+That he is toward his late, and none's bondtchools
+And witness to till the seafts forty.
+
+ISABELLA:
+The people are he will departher him,
+Of heaven, what new a matter of thy strength,
+And yet, this my tender's hence
+With sitlept of the foul a treasoner smoils and broke.
+
+CORIOLANUS:
+On!
+
+LUCIO:
+Give, my lord. I would you, sir; I'll stay:
+Though my friends are state, bondits.
+
+DUKE VINCENTIO:
+Down:
+You think you.
+
+ANGELO:
+He's buse.
+
+DUKE VINCENTIO:
+
+
+Moth you far left a pass, and the king. But how it is this silence
+To be a poor father to belike to thee?
+
+PAULINA:
+
+He hath since your maids,--formost for my life:
+For that the nature of he'll free sound
+
+==============================================================================
+checkpoint: step_001500.npz   step 1500   loss 3.4467
+==============================================================================
+
+WARWICK:
+What's answever, as charge?
+
+DUCHESS OF YORK:
+And so?
+
+KING RICHARD III:
+Madam, my lords, my good lords, Is,
+And therefore, my recrehensign.
+
+QUEEN ELIZABETH:
+What is it is my son?
+
+GLOUCESTER:
+
+Why should she? how canst thousand dost my love together
+To temposed her, and grant's serves,
+And sove me my last in me as I will be so.
+
+BUCKINGHAM:
+The duke is the world, pardon'd with the charity.
+So you, Buckinghameneth, we'll pardon to your busin,
+And, by Sury, for a pasters,
+That falt is a full of their deagy
+Because I cousin my pardon, and bounds attempt.
+
+KING RICHARD II:
+I thought your father.
+
+KING RICHARD III:
+Good lord, I'll, good Plantagistenet himself.
+
+KING RICHARD III:
+Speak, but my lord; to give him not
+
+==============================================================================
+checkpoint: step_001750.npz   step 1750   loss 3.4246
+==============================================================================
+
+Sir,
+But then I was I speak for, sir, we do with me,
+Alack I am cause more in his father.
+
+TRANIO:
+Make you; I'll tell you;
+You would behold you, sir.
+
+PERDITA:
+I have noise you well.
+
+LEONTES:
+My lord.
+
+DUKE VINCENTIO:
+What say 'n if she did. There was he city is the change
+threm'd, sir. The gods of Romeo,
+In the mides of this to the charge is the gates
+To exchange his titoring.
+
+POMPEY:
+If you be conceed: yet you.
+
+DUKE VINCENTIO:
+No, I am no, sir; and I will not be
+Than thou, sirrave you, sir, sir, if you shall have till
+With sometimely be made a small frum'd.
+
+ESCALUS:
+O Claudio, sir, sir;
+You do I meaning you. To her indeedin:
+I am a captifiest of Romeo. Gentleman: your goodness of the state
+falewith and the people
+
+==============================================================================
+checkpoint: step_002000.npz   step 2000   loss 3.4517
+==============================================================================
+
+O, apeak thou liest? O the
+What, 'twas none!
+
+First Servant:
+What is he?
+
+First Servingman:
+What?
+
+First Servingman:
+'Tis a distraws; a has me, if you
+servingman: he would call them takes; but I would have no
+ufflivate than any tears for this; he hath made
+served, as he, askill you were
+and, and you should not a back.
+
+Second Servingman:
+You had I'll do so, sir;
+For I say, and, as you'll tell you ask you.
+
+Second Servingman:
+Nay, I should she go always believe me,
+not beatsent and side me
+That they are chased in his friends, and yours.
+
+Third Servingman:
+Aways, to your city.
+
+Third Servant:
+No, sir, sir;
+You shall be gone to be little, as for your taunts,
+I'll try her.
+
+CORIOLANUS:
+Nay, but your name: your heart, and not
+And, my lord: we have been forth
+
+==============================================================================
+checkpoint: step_002250.npz   step 2250   loss 3.3122
+==============================================================================
+
+Somfail'd in his peace and turn!
+
+QUEEN ELIZABETH:
+Peace is it is it:
+But that I'll tell thee, instructs helds
+With her borne to the charge, and buy.
+
+QUEEN ELIZABETH:
+That ever had for this lustice wish'd up,
+Wheretoged from their matter interprisonment.
+
+QUEEN MARGARET:
+And yet, if you have he made my lands,
+And with me with me triumphance; and therefore, but, why we
+Should I am continue, and I'll keep the duke of your watch,
+Which thou speech'd thee; he would not whiles my death,
+And, when I, by myself my put once.
+For, for thy biddom, and therefore thy hand that?
+
+QUEEN ELIZABETH:
+We have forged to die, let them not come to him a
+Of my little receive of wine own hand.
+
+KING RICHARD III:
+A boy, for thy tongue, wholes in thy life,
+But I would not sleep of my grief of all the
+
+==============================================================================
+checkpoint: final.npz   step 2500   loss 3.5931
+==============================================================================
+
+Twe, what they are it not do not
+not.
+
+Second Servingman:
+What is he comes't?
+
+Second Citizen:
+And so he that you have been a cause.
+
+Second Servingman:
+Tell, fellow, sir, sir, sir, a good friar?
+
+Second Kird Servingman:
+My word, sir; let you say 'tis action of his
+creatured you. The god.
+
+Second Servingman:
+Servingman:
+I have you not ported a cold to give you.
+
+Third Citizen:
+'Tis a good to him attends.
+
+CORIOLANUS:
+I said; I pray you, sir.
+
+CORIOLANUS:
+I have no more.
+COMINIUS:
+Would think you
+You take your chambourship: but could
+They do not be content'd, to the people
+That you are garry, not a most peace, which it is not
+As they power to grant him.
+
+COMINIUS:
+If you have not be?
+
+CORIOLANUS:
+He had done told their eyes: but they are go to
+With given, and you have no turning of

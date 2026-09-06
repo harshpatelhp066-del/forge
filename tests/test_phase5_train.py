@@ -209,6 +209,27 @@ def test_schedule_floor_is_a_ratio_of_base_not_zero():
     assert s(99) > 0
 
 
+def test_schedule_is_a_pure_function_of_step_so_a_resume_continues_it():
+    """What makes --resume a resume rather than a restart.
+
+    Because the rate depends only on the step index, a run resumed at step 1750
+    of 2500 continues the cosine decay instead of re-entering warmup. A schedule
+    that tracked "calls so far" instead would silently restart the warmup and
+    undo the decay.
+    """
+    s = CosineWarmupSchedule(3e-3, warmup_steps=150, total_steps=2500)
+    # Querying out of order, repeatedly, must not change any answer.
+    reference = {step: s(step) for step in (0, 149, 750, 1750, 2499)}
+    for _ in range(3):
+        for step in (2499, 0, 1750, 149, 750):
+            assert s(step) == reference[step]
+
+    # At the resume point the rate is mid-decay, not back at the warmup floor.
+    assert reference[1750] < reference[149]          # past the peak
+    assert reference[1750] > reference[2499]         # not yet at the floor
+    assert reference[1750] > 10 * reference[0]       # nowhere near warmup's start
+
+
 def test_schedule_rejects_impossible_configurations():
     with pytest.raises(ValueError, match="must be <"):
         CosineWarmupSchedule(1e-3, warmup_steps=500, total_steps=100)

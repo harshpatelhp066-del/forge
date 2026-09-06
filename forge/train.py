@@ -231,9 +231,14 @@ def plot_loss_curve(csv_path, out_path, title: str = "Forge training") -> None:
         best = int(np.argmin(val))
         ax.scatter([val_steps[best]], [val[best]], s=90, facecolors="none",
                    edgecolors="#B03A28", lw=1.6, zorder=5)
+        # When the best value is the last one -- which is what "validation never
+        # diverged" looks like -- a right-anchored label would run off the axes.
+        near_right = val_steps[best] > 0.75 * max(steps)
         ax.annotate(f"best val {val[best]:.4f} @ step {val_steps[best]}",
                     (val_steps[best], val[best]), textcoords="offset points",
-                    xytext=(10, 14), fontsize=9, color="#B03A28")
+                    xytext=(-12, 20) if near_right else (10, 14),
+                    ha="right" if near_right else "left",
+                    fontsize=9, color="#B03A28")
     ax.set_ylabel("cross-entropy loss (nats/token)")
     ax.set_title(title)
     ax.grid(alpha=0.25, lw=0.6)

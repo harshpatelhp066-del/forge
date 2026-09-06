@@ -34,7 +34,8 @@ from forge.model import GPT, GPTConfig  # noqa: E402
 from forge.optim import Adam, clip_grad_norm  # noqa: E402
 from forge.tokenizer import load_tokenizer  # noqa: E402
 from forge.train import (CosineWarmupSchedule, LossLogger, estimate_loss,  # noqa: E402
-                         format_duration, plot_loss_curve, save_checkpoint)
+                         format_duration, load_checkpoint, plot_loss_curve,
+                         save_checkpoint)
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -70,6 +71,9 @@ def parse_args():
     p.add_argument("--checkpoint-every", type=int, default=250)
     p.add_argument("--out", type=Path, default=ROOT / "checkpoints")
     p.add_argument("--seed", type=int, default=1337)
+    p.add_argument("--resume", type=Path, default=None,
+                   help="resume from a checkpoint; --steps stays the TOTAL for the "
+                        "schedule, so the LR curve continues rather than restarting")
     return p.parse_args()
 
 
@@ -85,8 +89,17 @@ def main() -> int:
         return 1
     tokens = np.load(args.tokens)
     tok = load_tokenizer(args.tokenizer)
+
+    start_step = 0
+    if args.resume is not None:
+        with np.load(args.resume, allow_pickle=False) as z:
+            start_step = int(json.loads(str(z["meta"]))["step"])
+        print(f"resuming from {args.resume.name} at step {start_step}")
+
+    # Offset the loader's seed when resuming so the second leg does not replay the
+    # exact batch sequence the first leg already trained on.
     loader = DataLoader(tokens, block_size=args.block_size, batch_size=args.batch_size,
-                        val_fraction=args.val_fraction, seed=args.seed)
+                        val_fraction=args.val_fraction, seed=args.seed + start_step)
     print(loader.summary())
 
     # ---- model ------------------------------------------------------------- #
@@ -112,12 +125,32 @@ def main() -> int:
     csv_path = args.out / "loss_curve.csv"
     prompt = "\n"
     best_val = float("inf")
-    start = time.time()
+    elapsed_offset = 0.0
     sample_log: list[dict] = []
 
-    with LossLogger(csv_path) as logger:
+    if args.resume is not None:
+        load_checkpoint(args.resume, model, opt)
+        # Recover the best validation loss and elapsed time already banked, so a
+        # resumed run does not overwrite a better checkpoint or report a wall
+        # clock covering only its own leg.
+        if csv_path.exists():
+            import csv as _csv
+            with csv_path.open(encoding="utf-8") as fh:
+                for row in _csv.DictReader(fh):
+                    if int(row["step"]) > start_step:
+                        continue
+                    if row.get("val_loss"):
+                        best_val = min(best_val, float(row["val_loss"]))
+                    if row.get("elapsed_s"):
+                        elapsed_offset = max(elapsed_offset, float(row["elapsed_s"]))
+            print(f"  best val so far {best_val:.4f}, "
+                  f"{format_duration(elapsed_offset)} already spent")
+
+    start = time.time() - elapsed_offset
+
+    with LossLogger(csv_path, resume=args.resume is not None) as logger:
         model.train()
-        for step in range(args.steps):
+        for step in range(start_step, args.steps):
             lr = schedule(step)
             opt.lr = lr
 
@@ -139,8 +172,8 @@ def main() -> int:
             if step % args.eval_every == 0 or step == args.steps - 1:
                 val_loss = estimate_loss(model, loader, "val", args.eval_batches, seed=99)
                 elapsed = time.time() - start
-                done = step + 1
-                eta = elapsed / done * (args.steps - done)
+                done = step + 1 - start_step
+                eta = (time.time() - start - elapsed_offset) / done * (args.steps - step - 1)
                 print(f"step {step:5d}/{args.steps}  train {train_loss:.4f}  "
                       f"val {val_loss:.4f}  lr {lr:.2e}  |g| {grad_norm:6.3f}  "
                       f"{format_duration(elapsed)} elapsed, ~{format_duration(eta)} left")

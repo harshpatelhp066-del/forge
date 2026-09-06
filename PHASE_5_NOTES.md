@@ -19,19 +19,19 @@ Files: [`forge/train.py`](forge/train.py), [`scripts/train.py`](scripts/train.py
 
 | | |
 |---|---|
-| Parameters | {{PARAMS}} ({{PARAMS_NE}} non-embedding) |
-| Architecture | {{LAYERS}} layers, {{HEADS}} heads, d_model {{DMODEL}}, d_ff {{DFF}}, context {{CTX}} |
-| Training | {{STEPS}} steps × {{BATCH}} × {{CTX}} = {{TOTAL_TRAINED}} tokens ({{EPOCHS}} epochs) |
+| Parameters | 940,800 (793,344 non-embedding) |
+| Architecture | 4 layers, 4 heads, d_model 128, d_ff 512, context 128 |
+| Training | 2500 steps × 32 × 128 = 10.2M tokens (24.7 epochs) |
 | Uniform baseline | ln(1024) = 6.9315 |
-| Final train / val | **{{FINAL_TRAIN}}** / **{{FINAL_VAL}}** |
-| Best val | **{{BEST_VAL}}** |
-| Wall clock | {{ELAPSED}} on CPU ({{SPS}} s/step) |
+| Final train / val | **3.0967** / **3.5931** |
+| Best val | **3.5931** |
+| Wall clock | 1h59m on CPU (2.87 s/step) |
 
 ![loss curve](checkpoints/loss_curve.png)
 
 ## Verification status
 
-**{{PHASE5_TESTS}}/{{PHASE5_TESTS}} Phase 5 tests pass** ({{TESTS}} total across all phases).
+**35/35 Phase 5 tests pass** (436 total across all phases).
 
 - **Schedule**: warmup is linear and reaches exactly `base_lr` at its end; the
   cosine midpoint sits exactly halfway between base and floor; the rate is
@@ -177,7 +177,7 @@ Adam's second-moment estimate `v` is meaningless for the first few dozen steps �
 an average over a handful of gradients from a randomly initialised model — so
 `1/√v̂` is a badly scaled step in a direction that is mostly noise. Warming up
 from ~0 keeps those steps small enough not to matter. 150 warmup steps out of
-{{STEPS}}, then cosine decay to a **floor of 10% of base**, not to zero: a zero
+2500, then cosine decay to a **floor of 10% of base**, not to zero: a zero
 terminal rate wastes the final steps entirely.
 
 Cosine over step decay because a step introduces a discontinuity that shows up as
@@ -252,5 +252,32 @@ sub-normalised slice.
   (the engine supports it — `.grad` accumulates until zeroed — but the loop does
   not expose it).
 - No early stopping; the best-validation checkpoint is saved separately instead.
-- No resume-from-checkpoint flag in `scripts/train.py`, though
-  `load_checkpoint` supports it and it is tested.
+- No prefetching: batches are gathered synchronously with the training step
+  rather than on a background thread.
+
+## `--resume`, and why it exists
+
+The first attempt at the 2500-step run was killed at step 1884 when the session
+it was running under was torn down. Nothing was corrupted — the CSV had flushed
+every row and checkpoints existed every 250 steps — but `run_summary.json`, the
+plot and `final.npz` are only written at the end, so none of them existed.
+
+Rather than throw away 1884 steps, `scripts/train.py` gained `--resume`. Four
+details make it a real resume rather than a restart:
+
+1. **`--steps` stays the *total*.** The schedule is a pure function of the step
+   index, so resuming at 1750 continues the cosine decay from `9.24e-4` instead of
+   re-running warmup. Verified on resume: loss picked up at 3.42, not 6.93, and
+   the learning rate was exactly the schedule's value for step 1750 of 2500.
+2. **Optimizer state is restored**, not just weights. Adam's `m`, `v` and `t` are
+   in the checkpoint; without `t`, bias correction would behave as if the run had
+   just started and take a 3.16× step.
+3. **The loader is seeded with `seed + start_step`**, so the second leg does not
+   replay the exact batch sequence the first leg already trained on.
+4. **Best-val and elapsed time are recovered from the CSV**, so a resumed run
+   cannot overwrite a better checkpoint or report a wall clock covering only its
+   own leg.
+
+The 134 rows the first leg logged *after* its last checkpoint (steps 1751–1884)
+were truncated from the CSV before resuming, so the committed curve describes one
+coherent trajectory rather than a segment walked twice.

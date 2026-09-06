@@ -1,0 +1,30 @@
+{
+  "config": {
+    "vocab_size": 1024,
+    "block_size": 128,
+    "n_layer": 4,
+    "n_head": 4,
+    "d_model": 128,
+    "d_ff": 512,
+    "dropout": 0.2,
+    "tie_embeddings": true,
+    "init_std": 0.02
+  },
+  "parameters": 940800,
+  "parameters_non_embedding": 793344,
+  "steps": 2500,
+  "batch_size": 32,
+  "lr": 0.003,
+  "warmup": 150,
+  "weight_decay": 0.1,
+  "grad_clip": 1.0,
+  "dropout": 0.2,
+  "final_train_loss": 3.0967363834381105,
+  "final_val_loss": 3.5931230664253233,
+  "best_val_loss": 3.5931230664253233,
+  "uniform_baseline": 6.931471805599453,
+  "elapsed_seconds": 7177.642690896988,
+  "seconds_per_step": 2.8710570763587953,
+  "train_tokens": 413784,
+  "val_tokens": 45976
+}
