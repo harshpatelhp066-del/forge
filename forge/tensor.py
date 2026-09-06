@@ -4,20 +4,20 @@ A minimal reverse-mode automatic differentiation library built on NumPy.
 
 The design is the classic one: every :class:`Tensor` produced by an operation
 keeps a reference to its parents plus a closure that knows how to push gradient
-from the output back to those parents.  Calling :meth:`Tensor.backward` walks the
+from the output back to those parents. Calling :meth:`Tensor.backward` walks the
 graph in reverse topological order and invokes each closure exactly once, so
 every node's ``.grad`` is complete before it is used.
 
 One detail is load-bearing and easy to get wrong: a backward closure receives the
 output's gradient as an *argument* rather than reading it off the output node.
 Capturing the output would make every node part of an ``out -> closure -> out``
-reference cycle, which reference counting cannot collect -- so whole graphs would
-survive until Python's cyclic collector happened to run.  That is a memory design
+reference cycle, which reference counting cannot collect, so whole graphs would
+survive until Python's cyclic collector happened to run. That is a memory design
 decision, not a style one; it is what makes a training run's working set bounded.
 See PHASE_5_NOTES.md.
 
-Everything else in Forge -- layers, attention, the optimizer, the GPT model --
-is written on top of this file.  Nothing here imports a framework.
+Everything else in Forge (layers, attention, the optimizer, the GPT model) is
+written on top of this file. Nothing here imports a framework.
 """
 
 from __future__ import annotations
@@ -39,7 +39,7 @@ def set_default_dtype(dtype) -> None:
     """Set the dtype every new Tensor is cast to.
 
     Training runs in float32 (half the memory, and meaningfully faster BLAS than
-    float64).  The gradient checker flips this to float64 because central finite
+    float64). The gradient checker flips this to float64 because central finite
     differences burn roughly half the available significant digits, and float32
     does not have enough of them left to certify an analytical gradient.
     """
@@ -55,7 +55,7 @@ class no_grad:
     """Context manager that disables graph construction.
 
     Used for evaluation and generation, where building a tape would waste both
-    memory and time.  Implemented as a global flag consulted by :func:`Tensor._make`;
+    memory and time. Implemented as a global flag consulted by :func:`Tensor._make`;
     ops still run, they just do not record parents.
     """
 
@@ -82,10 +82,10 @@ def is_grad_enabled() -> bool:
 def _unbroadcast(grad: np.ndarray, shape: tuple) -> np.ndarray:
     """Reduce ``grad`` back to ``shape`` after NumPy broadcasting.
 
-    Broadcasting copies in the forward direction, so its adjoint is a sum.  Two
+    Broadcasting copies in the forward direction, so its adjoint is a sum. Two
     things can happen when an array of shape ``shape`` is broadcast: leading axes
     are prepended (sum them away entirely) and size-1 axes are stretched (sum
-    them but keep the axis).  This handles both.
+    them but keep the axis). This handles both.
     """
     if grad.shape == shape:
         return grad
@@ -208,10 +208,10 @@ class Tensor:
         ``backward_fn`` takes the output's gradient as an *argument*.  It must not
         close over the output tensor: a closure that reads ``out.grad`` creates an
         ``out -> closure -> out`` reference cycle, which reference counting can
-        never break, so the entire graph -- every activation buffer in it --
-        survives until the cyclic collector happens to run.  With multi-megabyte
+        never break, so the entire graph, including every activation buffer in it,
+        survives until the cyclic collector happens to run. With multi-megabyte
         activations that is the difference between a bounded working set and an
-        out-of-memory crash mid-training.  See PHASE_5_NOTES.md.
+        out-of-memory crash mid-training. See PHASE_5_NOTES.md.
         """
         needs = _GRAD_ENABLED and any(p.requires_grad for p in parents)
         if not needs:
@@ -228,11 +228,11 @@ class Tensor:
         seed raises rather than silently implying a sum.
 
         ``retain_grads=False`` (the default) frees each *intermediate* node's
-        ``.grad`` as soon as its backward closure has run.  An intermediate's
-        adjoint is read exactly once -- by its own closure, to push into its
-        parents -- so holding it afterwards serves no purpose but roughly doubles
+        ``.grad`` as soon as its backward closure has run. An intermediate's
+        adjoint is read exactly once, by its own closure, to push into its
+        parents, so holding it afterwards serves no purpose but roughly doubles
         peak memory, since the gradient buffers are the same size as the forward
-        activations they shadow.  Leaves (inputs and parameters) always keep
+        activations they shadow. Leaves (inputs and parameters) always keep
         their gradients; they have no closure and are what the optimizer reads.
         Set ``retain_grads=True`` to inspect an intermediate's gradient.
         """
@@ -272,7 +272,7 @@ class Tensor:
         for node in reversed(topo):
             g = node.grad
             if g is not None:
-                # A node can be reachable yet receive nothing -- e.g. the
+                # A node can be reachable yet receive nothing, e.g. the
                 # zero-gradient side of a `where`. Its parents get nothing either.
                 node._backward(g)
             if not retain_grads and node._prev and node is not self:
@@ -382,7 +382,7 @@ class Tensor:
 
         return Tensor._make(a.data @ b.data, (a, b), "matmul", bw)
 
-    # Reflected variants -- scalars and NumPy arrays on the left-hand side.
+    # Reflected variants, scalars and NumPy arrays on the left-hand side.
     def __radd__(self, other):
         return self._coerce(other) + self
 
@@ -505,7 +505,7 @@ class Tensor:
 
         def bw(g):
             expanded_val = _expand_dims_for_reduction(np.asarray(val), shape, axis, keepdims)
-            # Ties split the gradient evenly.  That keeps the adjoint a valid
+            # Ties split the gradient evenly. That keeps the adjoint a valid
             # subgradient and matches what a symmetric finite difference
             # measures at a tie, so the gradient checker stays meaningful.
             hits = (a.data == expanded_val).astype(a.data.dtype)
@@ -582,8 +582,8 @@ class Tensor:
     def __getitem__(self, idx) -> "Tensor":
         """Indexing / gather.
 
-        The adjoint of a gather is a scatter-add.  ``np.add.at`` is the buffered
-        (duplicate-safe) form -- plain fancy-index assignment silently keeps only
+        The adjoint of a gather is a scatter-add. ``np.add.at`` is the buffered
+        (duplicate-safe) form, plain fancy-index assignment silently keeps only
         the last write when an index repeats, which is exactly what happens when
         a token appears twice in a batch.
         """
@@ -645,8 +645,8 @@ class Tensor:
     def masked_fill(self, mask, value: float) -> "Tensor":
         """Replace entries where ``mask`` is truthy with ``value``.
 
-        Gradient flows only through the *unmasked* entries -- the filled ones are
-        constants.  This is what makes causal masking gradient-tight: a future
+        Gradient flows only through the *unmasked* entries, the filled ones are
+        constants. This is what makes causal masking gradient-tight: a future
         position cannot leak signal backwards through the mask.
         """
         a = self

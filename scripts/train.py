@@ -3,7 +3,7 @@
     python scripts/prepare_data.py --vocab-size 1024
     python scripts/train.py --steps 2500
 
-Everything -- the autodiff, the layers, the optimizer, the tokenizer -- is Forge.
+Everything, the autodiff, the layers, the optimizer, the tokenizer, is Forge.
 NumPy is the only numerical dependency; matplotlib is used once at the end to
 draw the loss curve.
 """
@@ -22,7 +22,7 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # An untrained model emits random bytes, which decode to U+FFFD replacement
-# characters -- and the default Windows console codepage (cp1252) cannot encode
+# characters, and the default Windows console codepage (cp1252) cannot encode
 # those, so printing a sample would crash the run. Force UTF-8 on the streams.
 for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):

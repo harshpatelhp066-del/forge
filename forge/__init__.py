@@ -1,8 +1,8 @@
-"""Forge -- a deep learning framework written from scratch on NumPy.
+"""Forge, a deep learning framework written from scratch on NumPy.
 
 Phase 1 gives you a reverse-mode autodiff engine (:mod:`forge.tensor`) and the
-finite-difference checker that certifies it (:mod:`forge.gradcheck`).  Every
-later phase -- layers, optimizer, transformer, tokenizer, training loop -- is
+finite-difference checker that certifies it (:mod:`forge.gradcheck`). Every
+later phase, layers, optimizer, transformer, tokenizer, training loop, is
 built on those two files and nothing else.
 """
 

@@ -1,8 +1,8 @@
 """Numerical gradient checking for the Forge autodiff engine.
 
 The whole project rests on Phase 1 being right, and "the loss went down" is not
-evidence that a gradient is correct -- a systematically wrong gradient can still
-descend, just to the wrong place.  So every operation is certified against a
+evidence that a gradient is correct, a systematically wrong gradient can still
+descend, just to the wrong place. So every operation is certified against a
 central finite difference of the same function.
 
 Two details matter for this to be a real test rather than a rubber stamp:
@@ -10,22 +10,22 @@ Two details matter for this to be a real test rather than a rubber stamp:
 1. **Central differences, in float64.**  The forward difference
    ``(f(x+h) - f(x)) / h`` has O(h) truncation error; the central difference
    ``(f(x+h) - f(x-h)) / 2h`` has O(h^2), which buys about four extra digits for
-   free.  Catastrophic cancellation in the numerator then costs roughly half the
-   mantissa, so float32 (7 digits) leaves ~3 digits of signal -- not enough to
+   free. Catastrophic cancellation in the numerator then costs roughly half the
+   mantissa, so float32 (7 digits) leaves ~3 digits of signal, not enough to
    distinguish a correct gradient from a subtly wrong one.  float64 leaves ~8.
 
 2. **A random scalar projection, not a plain sum.**  Reducing the output with
-   ``out.sum()`` only ever tests ``J^T @ 1``.  A transposed or mis-permuted
-   Jacobian can pass that by accident.  Reducing with ``(out * w).sum()`` for a
+   ``out.sum()`` only ever tests ``J^T @ 1``. A transposed or mis-permuted
+   Jacobian can pass that by accident. Reducing with ``(out * w).sum()`` for a
    fixed random ``w`` tests ``J^T @ w``; over several random draws that pins down
    the full Jacobian.
 
 3. **A combined relative/absolute criterion.**  A finite difference has an
-   irreducible absolute noise floor of roughly ``eps * |f| / h`` -- about 2e-11
-   for an O(1) loss in float64 -- because the numerator subtracts two nearly
-   equal numbers.  Judging a gradient entry of size 1e-8 by relative error alone
+   irreducible absolute noise floor of roughly ``eps * |f| / h``, about 2e-11
+   for an O(1) loss in float64, because the numerator subtracts two nearly
+   equal numbers. Judging a gradient entry of size 1e-8 by relative error alone
    therefore reports a "failure" of 1e-3 that is entirely an artefact of the
-   measurement.  The criterion here is the usual ``allclose`` form,
+   measurement. The criterion here is the usual ``allclose`` form,
    ``|a - n| <= atol + rtol * max(|a|, |n|)``: ``rtol`` does the real work on
    entries above the floor, and ``atol`` stops the floor from generating noise.
 """
@@ -89,14 +89,14 @@ def check_gradient(
         Callable taking the Tensors in ``inputs`` and returning a single Tensor
         of any shape.
     inputs:
-        Sequence of Tensors.  Those with ``requires_grad=True`` are checked.
+        Sequence of Tensors. Those with ``requires_grad=True`` are checked.
     h:
         Finite-difference step.  1e-5 sits near the float64 optimum: truncation
         error falls as h^2 while round-off grows as 1/h, and the two cross around
         1e-5 to 1e-6 for well-scaled inputs.
     rtol, atol:
         Pass criterion ``|a - n| <= atol + rtol * max(|a|, |n|)``, applied
-        elementwise.  ``atol`` is the finite-difference noise floor (see the
+        elementwise. ``atol`` is the finite-difference noise floor (see the
         module docstring), not slack for a wrong gradient.
     n_projections:
         Number of random output projections to test (see module docstring).

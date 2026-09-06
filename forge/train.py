@@ -30,7 +30,7 @@ class CosineWarmupSchedule:
     """Linear warmup, then cosine decay to ``min_lr``.
 
     **Why warmup.** Adam's second-moment estimate ``v`` is meaningless for the
-    first few dozen steps -- it is an average over a handful of gradients from a
+    first few dozen steps, it is an average over a handful of gradients from a
     randomly initialised model, so ``1/√v̂`` is a badly scaled step size in a
     direction that is mostly noise. Warming the learning rate up from ~0 keeps
     those steps small enough not to matter. Skipping warmup on a transformer
@@ -82,7 +82,7 @@ def save_checkpoint(path, model, optimizer=None, step: int = 0,
 
     Parameter names contain dots, which ``np.savez`` accepts as archive member
     names, so the state dict maps over directly under a ``param/`` prefix.
-    Config and metadata ride along as a JSON string in a 0-d array -- keeping
+    Config and metadata ride along as a JSON string in a 0-d array, keeping
     everything in one file means a checkpoint can be loaded without needing the
     original config to be reconstructed by hand.
     """
@@ -103,7 +103,7 @@ def save_checkpoint(path, model, optimizer=None, step: int = 0,
     arrays["meta"] = np.array(json.dumps(payload))
 
     # Write to a temporary file and rename, so an interrupted save cannot leave a
-    # truncated checkpoint where a valid one used to be.  The handle is opened
+    # truncated checkpoint where a valid one used to be. The handle is opened
     # here rather than passing a path: np.savez silently appends ".npz" to a
     # filename that lacks it, which would write "best.npz.tmp.npz" and leave the
     # rename below pointing at a file that does not exist.
@@ -141,8 +141,8 @@ def estimate_loss(model, loader, split: str = "val", n_batches: int = 20,
                   seed: int | None = None) -> float:
     """Mean loss over ``n_batches`` batches, in eval mode and without a tape.
 
-    Runs under :class:`~forge.tensor.no_grad` and in ``eval()`` so dropout is off
-    -- otherwise the reported validation loss would be measured on a randomly
+    Runs under :class:`~forge.tensor.no_grad` and in ``eval()`` so dropout is off.
+    Otherwise the reported validation loss would be measured on a randomly
     thinned network and would read worse than the model actually is.
     """
     was_training = model.training
@@ -231,8 +231,8 @@ def plot_loss_curve(csv_path, out_path, title: str = "Forge training") -> None:
         best = int(np.argmin(val))
         ax.scatter([val_steps[best]], [val[best]], s=90, facecolors="none",
                    edgecolors="#B03A28", lw=1.6, zorder=5)
-        # When the best value is the last one -- which is what "validation never
-        # diverged" looks like -- a right-anchored label would run off the axes.
+        # When the best value is the last one, which is what "validation never
+        # diverged" looks like, a right-anchored label would run off the axes.
         near_right = val_steps[best] > 0.75 * max(steps)
         ax.annotate(f"best val {val[best]:.4f} @ step {val_steps[best]}",
                     (val_steps[best], val[best]), textcoords="offset points",

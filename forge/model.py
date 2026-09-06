@@ -75,7 +75,7 @@ class Block(nn.Module):
 
     Both sub-layers are wrapped as ``x + f(LayerNorm(x))``. The residual branch
     is an identity path from input to output, so gradient reaches the earliest
-    block undiminished regardless of depth -- the LayerNorm sits *inside* the
+    block undiminished regardless of depth, the LayerNorm sits *inside* the
     branch, not astride the shortcut.
     """
 
@@ -118,7 +118,7 @@ class GPT(nn.Module):
 
         if cfg.tie_embeddings:
             # Weight tying: the output projection *is* the token embedding,
-            # transposed. Not a separate parameter -- gradient from both uses
+            # transposed. Not a separate parameter, gradient from both uses
             # accumulates into the one tensor, and named_parameters()
             # de-duplicates so the optimizer steps it once.
             self.lm_head = None

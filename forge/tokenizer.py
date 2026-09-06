@@ -18,13 +18,13 @@ Measured on the 1,115,394-character tiny-shakespeare corpus:
 
 The project trains at **vocab 1024**: 2.43 characters per token, so a 128-token
 window covers ~311 characters rather than 128. Beyond ~2048 the returns clearly
-diminish while the embedding matrix -- the single largest tensor in a model this
-size -- keeps growing linearly, so the extra vocabulary would come straight out
+diminish while the embedding matrix, the single largest tensor in a model this
+size, keeps growing linearly, so the extra vocabulary would come straight out
 of the budget for depth and width.
 
 BPE is implemented over **bytes**, not Unicode code points. A byte-level base
 vocabulary is exactly 256 symbols and can represent any input, so there is no
-out-of-vocabulary case and no `<unk>` token to reason about -- an unseen
+out-of-vocabulary case and no `<unk>` token to reason about, an unseen
 character simply falls back to its UTF-8 bytes.
 
 Both tokenizers implement the same interface: ``encode``, ``decode``,
@@ -209,7 +209,7 @@ class BPETokenizer:
             "type": "bpe",
             "vocab_size": self.vocab_size,
             # JSON has no tuple keys, so merges are stored as [a, b, new_id]
-            # triples in learned order -- which also makes the file readable.
+            # triples in learned order, which also makes the file readable.
             "merges": [[a, b, i] for (a, b), i in self.merges.items()],
         }
         path.write_text(json.dumps(payload), encoding="utf-8")
@@ -229,7 +229,7 @@ class BPETokenizer:
 class CharTokenizer:
     """Character-level fallback: one token per distinct character in the corpus.
 
-    Kept for comparison rather than as the default -- see the module docstring.
+    Kept for comparison rather than as the default, see the module docstring.
     Unlike the byte-level BPE it *does* have an out-of-vocabulary case, since a
     character absent from the training corpus has no id; ``encode`` skips such
     characters rather than inventing an `<unk>`.

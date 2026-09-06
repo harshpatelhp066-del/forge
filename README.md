@@ -1,66 +1,58 @@
 # Forge
 
-A deep learning framework written from scratch on NumPy — a reverse-mode
-autodiff engine, neural network primitives built on top of it, and a GPT-style
-decoder-only Transformer that trains on real text and generates coherent output.
+A small deep learning framework written on top of NumPy: an autodiff engine, the
+layers you need for a transformer, and a GPT that trains on Shakespeare and
+generates text.
 
-No PyTorch. No TensorFlow. No JAX. No autograd library. **Every gradient in this
-repository is computed by an engine in [`forge/tensor.py`](forge/tensor.py), and
-every layer is composed from ops that engine knows how to differentiate.**
+No PyTorch, TensorFlow, JAX, or autograd. Every gradient comes from
+[`forge/tensor.py`](forge/tensor.py), and every layer is built from ops that
+engine can differentiate.
 
 ```
-loss 6.93 (uniform baseline)  ────────────►  3.5931 validation
-940,800 parameters · 4 layers · 4 heads · 128 d_model · 128-token context
-436 tests · 31 operation configurations certified against finite differences
+uniform baseline  ln(1024) = 6.9315
+final             train 3.0967   val 3.5931
+model             940,800 params · 4 layers · 4 heads · d_model 128 · 128-token context
+tests             436 passing · 31 op configurations gradient-checked
 ```
 
----
+## What's actually built here
 
-## What "from scratch" means here
+NumPy is used as an array library only: `@`, `exp`, `sum`, fancy indexing.
+Matplotlib draws one chart. That's the whole dependency list.
 
-The only numerical dependency is NumPy, used as an array library — `@`, `exp`,
-`sum`, fancy indexing. Matplotlib draws one chart at the end. That is the whole
-dependency list.
+Everything else is in this repo:
 
-Everything below was built for this project:
+- **Autodiff engine.** A `Tensor` that records a graph, a topological sort, and a
+  hand-written adjoint for each of its 26 ops. Broadcasting included, since the
+  adjoint of a broadcast is a sum over the stretched axes.
+- **Layers.** Linear, Embedding, LayerNorm, Dropout, GELU, softmax,
+  cross-entropy, and multi-head causal self-attention.
+- **Adam**, with bias correction and decoupled weight decay.
+- **A byte-level BPE tokenizer** with an incremental pair index.
+- **Training loop** with gradient clipping, warmup + cosine decay, and
+  checkpointing.
 
-| Layer | What it required |
-|---|---|
-| **Autodiff engine** | A `Tensor` that records a computation graph, a topological sort, and a hand-derived adjoint for each of its 26 operations |
-| **Broadcasting gradients** | The adjoint of a broadcast is a sum over the stretched axes — applied inside every binary op |
-| **Linear, Embedding, LayerNorm, Dropout** | Composed from certified primitives; the engine assembles their backward passes |
-| **Multi-head causal self-attention** | Head splitting, scaled dot-product, causal masking, and the reshape/transpose gradient plumbing under it |
-| **Adam** | Bias correction, decoupled weight decay, and the fused step-size algebra |
-| **BPE tokenizer** | Byte-level merges with an incremental pair index |
-| **Training loop** | Cross-entropy on the engine, global gradient clipping, warmup + cosine schedule, checkpointing |
+### Why this is harder than it looks
 
-### Why it's hard
+A wrong gradient still trains. If a forward pass is wrong you get a shape error
+and a stack trace. If a *gradient* is wrong you get nothing: the loss still goes
+down, just slower and to a worse place. Nothing crashes and there is no error
+message. That's why Phase 1 is built around a
+[finite-difference gradient checker](forge/gradcheck.py) that certifies every op
+before anything is built on top, and why the checker is itself tested against
+gradients that are deliberately broken.
 
-**A wrong gradient still trains.** This is the thing that makes the project
-genuinely difficult. If a layer's forward pass is wrong, shapes mismatch and the
-program crashes. If a *gradient* is wrong, nothing crashes — the loss still goes
-down, just to the wrong place, more slowly, and you cannot tell by looking. There
-is no error message. This is why Phase 1 is built around a
-[finite-difference gradient checker](forge/gradcheck.py) that certifies every
-operation before anything is built on top of it, and why the checker is itself
-tested against deliberately broken gradients (see below).
+Numerical stability isn't free either. `exp` overflows above 88 in float32 and
+attention logits go past that routinely. `log(softmax(x))` underflows to `-inf`
+the first time the model is confidently wrong. Adam's first step is 3.16x too big
+without bias correction. A framework handles all of this for you; here you find
+each one yourself, usually the hard way.
 
-**Numerical stability is not automatic.** `exp` overflows above 88 in float32,
-and attention logits routinely exceed that. `log(softmax(x))` underflows to
-`-inf` for a confidently wrong prediction. Adam's first step is 3.16× too large
-without bias correction. A framework hides all of this; here every instance had
-to be found and handled, and each one is documented in the phase notes with the
-reasoning.
-
-**Memory is your problem.** The first full training run died at step 103 with an
-out-of-memory error. The cause was not a leak in the ordinary sense but a
-reference cycle: each backward closure captured its own output tensor, so
-reference counting could never free a graph and every activation buffer survived
-until the cyclic collector happened to run. Finding it meant profiling the graph
-by operation and disabling the cyclic collector to make the failure deterministic.
-[The full debugging story is in PHASE_5_NOTES.md.](PHASE_5_NOTES.md)
-
----
+Memory is also your problem. The first full training run died at step 103 with an
+OOM. It wasn't a leak in the usual sense: each backward closure captured its own
+output tensor, so every node sat in a reference cycle that refcounting can't
+break, and whole graphs survived until the cyclic collector happened to run.
+Details in [PHASE_5_NOTES.md](PHASE_5_NOTES.md).
 
 ## Architecture
 
@@ -73,16 +65,16 @@ flowchart TB
     ADD --> DROP["Dropout"]
     DROP --> BLOCKS
 
-    subgraph BLOCKS ["N × Transformer Block — pre-norm"]
+    subgraph BLOCKS ["N × Transformer Block (pre-norm)"]
         direction TB
         XIN(["x"]) --> LN1["LayerNorm"]
         LN1 --> ATT["Multi-head causal<br/>self-attention"]
         ATT --> R1(("+"))
-        XIN -.->|"residual (identity)"| R1
+        XIN -.->|residual| R1
         R1 --> LN2["LayerNorm"]
         LN2 --> MLP["MLP<br/>d → 4d → GELU → d"]
         MLP --> R2(("+"))
-        R1 -.->|"residual (identity)"| R2
+        R1 -.->|residual| R2
         R2 --> XOUT(["x'"])
     end
 
@@ -90,7 +82,7 @@ flowchart TB
     LNF --> HEAD["Output projection<br/><i>weights tied to wte</i>"]
     HEAD --> LOGITS["logits (B, T, vocab)"]
     LOGITS --> CE["Cross-entropy<br/>vs. next token"]
-    WTE -.->|"same tensor"| HEAD
+    WTE -.->|same tensor| HEAD
 
     style ATT fill:#4C7BD9,color:#fff
     style MLP fill:#5B9E6B,color:#fff
@@ -98,12 +90,11 @@ flowchart TB
     style CE fill:#D95F4C,color:#fff
 ```
 
-The dotted residual edges branch from the block's **input**, not from the
-LayerNorm's output — that is exactly what makes the shortcut an identity and lets
-gradient reach the first block undiminished.
+Note the residual edges start at the block *input*, not at the LayerNorm output.
+That's what keeps the shortcut an identity.
 
-Inside one attention block, for batch `B`, sequence `T`, width `C`, `H` heads of
-size `d = C/H`:
+Inside one attention block (batch `B`, sequence `T`, width `C`, `H` heads of size
+`d = C/H`):
 
 ```mermaid
 flowchart LR
@@ -119,56 +110,52 @@ flowchart LR
     style SM fill:#4C7BD9,color:#fff
 ```
 
-**Key choices**, each with the reasoning in the phase notes:
+A few choices worth calling out, with the reasoning in the phase notes:
 
-- **Pre-norm** (`x + f(LayerNorm(x))`), not post-norm — the residual path stays an
-  identity from the first block to the last, so gradient reaches early layers
-  undiminished. Measured: the first block's gradient norm is within an order of
-  magnitude of the last's across 6 layers.
-- **Tied input/output embeddings** — saves `vocab × d_model` parameters and
-  couples the two representations of a token. The tied tensor accumulates
-  gradient from both uses and is stepped exactly once.
-- **Residual projections initialized at `0.02/√(2·n_layer)`** — each block adds
-  two branches into the residual stream, so without this the stream's variance
-  grows linearly with depth.
-- **Byte-level BPE** — no out-of-vocabulary case by construction. 2.43 characters
-  per token vs. 1.00 for character-level, so a 128-token window sees ~311
-  characters instead of 128.
-
----
+- **Pre-norm**, `x + f(LayerNorm(x))`. With post-norm the shortcut isn't an
+  identity and gradient gets rescaled once per block. Measured across 6 layers,
+  the first block's gradient norm stays within an order of magnitude of the last's.
+- **Tied embeddings.** The output projection is the token embedding transposed.
+  Saves `vocab × d_model` params, and the tied tensor gets gradient from both uses
+  while being stepped once.
+- **Residual projections init at `0.02/√(2·n_layer)`.** Two branches per block
+  feed the residual stream, so without this its variance grows with depth.
+- **Byte-level BPE**, so there's no OOV case at all. 2.43 chars/token against 1.00
+  for character-level, which means a 128-token window covers ~311 characters.
 
 ## Results
 
-**Corpus**: [tiny-shakespeare](https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt),
-1,115,394 characters, public domain. Tokenized to 459,760 BPE tokens
-(vocab 1024), split 413,784 train / 45,976 validation.
+Corpus is [tiny-shakespeare](https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt),
+1,115,394 characters, public domain. Tokenized to 459,760 BPE tokens at vocab
+1024, split 413,784 train / 45,976 val.
 
 | | |
 |---|---|
-| Parameters | **940,800** (793,344 non-embedding) |
+| Parameters | 940,800 (793,344 non-embedding) |
 | Architecture | 4 layers, 4 heads, d_model 128, d_ff 512, context 128 |
-| Training | 2500 steps × 32 × 128 tokens = 10.2M tokens (24.7 epochs) |
-| Uniform baseline | ln(1024) = **6.9315** |
-| Final train loss | **3.0967** |
-| Final val loss | **3.5931** |
-| Best val loss | **3.5931** |
-| Wall clock | 1h59m on CPU (2.87 s/step) |
+| Training | 2500 steps × 32 × 128 = 10.2M tokens (24.7 epochs) |
+| Uniform baseline | ln(1024) = 6.9315 |
+| Final train / val | 3.0967 / 3.5931 |
+| Wall clock | 1h59m on CPU, 2.87 s/step |
 
 ![loss curve](checkpoints/loss_curve.png)
 
-Both curves fall together and validation tracks training — validation reaches its minimum at the **final step**, never turning back up, so the run was stopped by the step budget rather than by overfitting. Train and validation separate by 0.50 nats, the mild gap expected when a 413,784-token corpus is revisited 25 times with dropout 0.2 and weight decay 0.1.
+Validation hits its minimum on the last step and never turns back up, so the run
+was bounded by the step budget rather than by overfitting. Train and val separate
+by about 0.50 nats, which is roughly what you'd expect passing over a 400k-token
+corpus 25 times with dropout 0.2 and weight decay 0.1.
 
-### Generated text: before vs. after
+### Before and after
 
 Same prompt, same sampling settings (`temperature=0.8`, `top_k=40`), same seed.
 
-**Step 0 — untrained** (loss ≈ 6.93, uniform over the vocabulary):
+Step 0, untrained:
 
 ```
-ROMEO::�asseak� upAU youAB)usareimRO pray housele enwnroV thoughtinin Cloneone hon- wordat� alTis� hath so life lifeorabwnwnigh sw Y friends�eeterter� whenam bet thisestTheYou^� en been son EDWARD�ee� princeLILI ru bearTH8 meW[�Here'sim knLEtheYour�LO hor offore wellThou death death hathhe'd�That 'EL e& whe�Nowother allless EININeakFallLANUSUKE grace grace graceifeifeife but letro l come�ENTIOENTIOO by by whoH sp sp who sp} ent}}� ha�ence har> y tellGRHisJ WthepButpise app W
+ROMEO::�asseak� upAU youAB)usareimRO pray housele enwnroV thoughtinin Cloneone hon- wordat� alTis� hath so life lifeorabwnwnigh sw Y friends�eeterter� whenam bet thisestTheYou^� en been son EDWARD�ee� princeLILI ru bearTH8 meW[�Here'sim knLEtheYour�LO hor offore wellThou death death hathhe'd�That
 ```
 
-**Step 1000 — partially trained** (loss 3.8284):
+Step 1000, val loss 3.83:
 
 ```
 ROMEO:
@@ -188,7 +175,7 @@ Ay, if you hear me to live to see
 I doubly, I will make them?
 ```
 
-**Fully trained** (val loss 3.5931):
+Fully trained, val loss 3.5931:
 
 ```
 ROMEO:
@@ -212,22 +199,18 @@ And if thou wilt dost hear
 And what thou shalt know'st not the seasure.
 ```
 
-The full set across every checkpoint is in
-[`samples/before_after.txt`](samples/before_after.txt).
-
----
+Every checkpoint's output is in [`samples/before_after.txt`](samples/before_after.txt).
 
 ## Verification
 
-Correctness is the point of this project, so it is worth being specific about
-what is actually checked. **436 tests**, run with `python -m pytest tests/`.
+436 tests, `python -m pytest tests/`.
 
-### The gradient checker (Phase 1)
+### Gradient checking
 
-Every operation's analytical gradient is compared against a central finite
-difference, in float64, across random inputs and **random output projections** —
-reducing with `out.sum()` only tests `Jᵀ·1`, which a transposed Jacobian can pass
-by accident.
+Each op's analytical gradient is compared against a central finite difference in
+float64, over random inputs and random output projections. The projections matter:
+reducing with `out.sum()` only ever tests `Jᵀ·1`, which a transposed Jacobian can
+pass by luck.
 
 ```
 $ python scripts/gradcheck_report.py
@@ -235,29 +218,27 @@ $ python scripts/gradcheck_report.py
 typical relative error: ~2e-10
 ```
 
-**The checker is itself tested against deliberately wrong gradients** — a 2×
-error, a 1e-3 error, a 1e-5 error (10× the configured tolerance), and a 1% error
-confined to *one entry of a 40-entry tensor*. All four are caught. A checker that
-passes everything would have silently blessed the whole project.
+The checker also gets pointed at gradients that are wrong on purpose: 2x off,
+1e-3 off, 1e-5 off (10x the tolerance), and 1% off in a single entry of a
+40-element tensor. It catches all four. A checker that passes everything would
+have quietly blessed the whole project.
 
 ### The things that fail silently
 
-| Property | How it's tested |
+| Property | Test |
 |---|---|
-| **LayerNorm normalizes** | Output mean `0 ± 1e-6`, variance `1 ± 1e-4` on deliberately badly-scaled input (σ=17, μ=42) — not just a shape check |
-| **Causal masking blocks the future** | Attention weights are **exactly** `0.0` in the upper triangle; rewriting the input's tail leaves earlier outputs **bit-identical** with the tail scaled by 1000×; backpropagating from position `t` gives exactly zero gradient at every position after `t` |
-| **...and the masking tests can fail** | A negative control zeroes the mask and asserts both tests detect the leak |
-| **Adam's bias correction** | First step pinned to the closed form `lr·sign(g)` independent of gradient magnitude; the naive version overshoots by **3.16×**. Checked **bit-exact** against a separately written textbook Adam over 50 steps |
-| **Gradients are right end-to-end** | The model overfits a single batch to loss < 0.05 from a `ln(V)` start — if any gradient in the stack were wrong, this stalls |
-| **Every parameter is in the graph** | Each receives a finite, non-zero gradient; a missing one means a layer fell out of the graph |
-| **Tokenizer round-trips** | `decode(encode(x)) == x` on the corpus, on whitespace and punctuation edge cases, on Unicode never seen in training, and on random byte soup |
-| **No graph cycles** | No backward closure captures its output; 30 graphs are freed by refcounting with the cyclic collector disabled |
+| LayerNorm normalizes | Output mean `0 ± 1e-6` and variance `1 ± 1e-4` on badly-scaled input (σ=17, μ=42), not just a shape check |
+| Causal masking works | Attention weights are exactly `0.0` above the diagonal; rewriting the input's tail (scaled 1000x) leaves earlier outputs bit-identical; backprop from position `t` gives zero gradient past `t` |
+| Those masking tests can fail | A negative control zeroes the mask and checks both tests detect the leak |
+| Adam's bias correction | First step pinned to `lr·sign(g)` regardless of gradient magnitude; the naive version overshoots 3.16x. Also matched bit-for-bit against a separately written textbook Adam over 50 steps |
+| Gradients work end to end | The model overfits one batch to loss < 0.05 from a `ln(V)` start. Any wrong gradient in the stack and this stalls |
+| No layer fell out of the graph | Every parameter gets a finite, non-zero gradient |
+| Tokenizer round-trips | `decode(encode(x)) == x` on the corpus, on whitespace and punctuation, on Unicode never seen in training, and on random byte soup |
+| No graph cycles | No backward closure captures its output; 30 graphs freed by refcounting with the cyclic collector off |
 
----
+## Running it
 
-## Reproducing
-
-Requires Python 3.11+ and about 1.3 GB of RAM.
+Python 3.11+, about 1.3 GB of RAM.
 
 ```bash
 git clone https://github.com/harshpatelhp066-del/forge.git
@@ -265,65 +246,62 @@ cd forge
 pip install -r requirements.txt
 ```
 
-**1. Verify the engine** (a few seconds — do this first; nothing else is
-meaningful if it fails):
+Verify the engine first. Takes a few seconds, and nothing else means anything if
+it fails:
 
 ```bash
 python -m pytest tests/ -q
 python scripts/gradcheck_report.py
 ```
 
-**2. Download the corpus and train the tokenizer** (~3 s):
+Get the corpus and train the tokenizer (~3s):
 
 ```bash
 python scripts/prepare_data.py --vocab-size 1024
 ```
 
-**3. Train** (~120 minutes on a CPU):
+Train (about two hours on a CPU):
 
 ```bash
 python scripts/train.py --steps 2500 --dropout 0.2 --lr 3e-3
 ```
 
-Writes `checkpoints/loss_curve.{csv,png}`, `run_summary.json`, and a checkpoint
-every 250 steps. Seeded, so the run is reproducible.
+That writes `checkpoints/loss_curve.{csv,png}`, `run_summary.json`, and a
+checkpoint every 250 steps. It's seeded, so it reproduces. Add
+`--resume checkpoints/step_001750.npz` to pick up an interrupted run.
 
-**4. Generate**:
+Generate:
 
 ```bash
 python scripts/generate.py --checkpoint checkpoints/final.npz --prompt "ROMEO:"
 python scripts/generate.py --compare        # every checkpoint, early to final
 ```
 
-The model geometry is configurable:
+Geometry is configurable:
 
 ```bash
 python scripts/train.py --n-layer 6 --n-head 8 --d-model 256 --block-size 256
 ```
 
----
-
-## Repository layout
+## Layout
 
 ```
 forge/
-  tensor.py       Phase 1 — autodiff engine: Tensor, 26 ops, backward()
-  gradcheck.py    Phase 1 — finite-difference certification
-  nn.py           Phase 2 — Module, Linear, Embedding, LayerNorm, Dropout,
-                            softmax, GELU, cross-entropy, causal self-attention
-  optim.py        Phase 2 — Adam with bias correction, SGD, gradient clipping
-  model.py        Phase 3 — GPTConfig, Block, GPT, generate()
-  tokenizer.py    Phase 4 — byte-level BPE (+ character-level fallback)
-  data.py         Phase 4 — DataLoader, train/val split, shuffled batching
-  train.py        Phase 5 — LR schedule, checkpointing, evaluation, plotting
+  tensor.py       autodiff engine: Tensor, 26 ops, backward()
+  gradcheck.py    finite-difference certification
+  nn.py           Module, Linear, Embedding, LayerNorm, Dropout, softmax,
+                  GELU, cross-entropy, causal self-attention
+  optim.py        Adam, SGD, gradient clipping
+  model.py        GPTConfig, Block, GPT, generate()
+  tokenizer.py    byte-level BPE, plus a character-level fallback
+  data.py         DataLoader, train/val split, shuffled batching
+  train.py        LR schedule, checkpointing, evaluation, plotting
 scripts/          prepare_data.py, train.py, generate.py, gradcheck_report.py
 tests/            436 tests, one file per phase
-PHASE_N_NOTES.md  What was verified in each phase, and the real tradeoffs
 ```
 
-Each phase has its own notes file documenting what was verified and the
-numerical and design decisions behind it — including the mistakes, which are
-usually the more instructive part:
+Each phase has notes covering what was verified and the decisions behind it,
+including the things that went wrong:
 
 - [Phase 1 — Autodiff engine](PHASE_1_NOTES.md)
 - [Phase 2 — NN primitives and Adam](PHASE_2_NOTES.md)
@@ -332,55 +310,39 @@ usually the more instructive part:
 - [Phase 5 — Training and generation](PHASE_5_NOTES.md)
 - [Phase 6 — Polish and delivery](PHASE_6_NOTES.md)
 
----
+## Limitations
 
-## Known limitations
+This is a learning project, not a production system, and the gap is big.
 
-This is an educational and portfolio implementation, not a production system.
-The gap is large and worth being precise about.
+Scale. 940,800 parameters against GPT-3's 175 billion, so about 186,000x
+smaller, trained on ~1 MB against ~570 GB. It picks up Shakespeare's surface form
+(speaker labels, verse rhythm, archaic grammar, plausible word shapes) and some
+local grammar. It doesn't learn meaning and won't hold an idea across a paragraph.
+Look at the samples above and you can see exactly that: correct structure,
+invented words like "draitor" and "seasure".
 
-### Scale
+Things I skipped, and what they'd have cost:
 
-940,800 parameters against GPT-3's 175 billion — roughly **186,012×
-smaller**. Trained on ~1 MB of text; GPT-3 saw ~570 GB. The model learns
-Shakespeare's *surface form* — speaker labels, line breaks, verse rhythm,
-plausible word shapes — and some local grammar. It does not learn meaning, and
-it will not hold a coherent thought across a paragraph. That is a consequence of
-scale, not of a bug.
-
-### Deliberately skipped optimizations
-
-| Skipped | Why | What it costs |
+| Skipped | Why | Cost |
 |---|---|---|
-| **KV-cache** | Generation recomputes keys and values for the entire prefix on every step. A cache would add a mutable state path through attention that complicates the from-scratch story for no learning value. | Generation is O(T²) per token instead of O(T) — the single largest optimization left |
-| **Mixed precision** | float16 needs loss scaling to keep small gradients from flushing to zero, plus a master float32 copy of every parameter. Real engineering, but it is about GPU throughput, and there is no GPU here. | ~2× memory and bandwidth on hardware that supports it |
-| **Multi-GPU / distributed** | NumPy is single-device by definition. Gradient all-reduce and sharding are a distributed-systems problem, not a deep-learning one. | Cannot scale past one machine |
-| **Fused CUDA / flash attention** | Requires leaving NumPy entirely. | Attention materializes the full `(B,H,T,T)` matrix, so memory is quadratic in context |
-| **Gradient checkpointing** | Would trade compute for memory by recomputing activations in the backward pass. Not needed at this scale. | Activation memory is linear in depth |
-| **Learned LR schedules, RoPE, SwiGLU, RMSNorm** | Each is a small win over the GPT-2 baseline this reproduces. The goal was the canonical architecture, clearly. | Modestly better loss per parameter |
+| KV-cache | Adds a mutable state path through attention for no learning value | Generation is O(T²) per token instead of O(T). Biggest win left on the table |
+| Mixed precision | float16 needs loss scaling and a master float32 copy. It's a GPU throughput technique and there's no GPU here | ~2x memory and bandwidth where supported |
+| Multi-GPU | NumPy is single-device. All-reduce and sharding are a distributed systems problem, not a DL one | Can't scale past one machine |
+| Flash attention | Needs to leave NumPy | Attention materializes the full `(B,H,T,T)` matrix, so memory is quadratic in context |
+| Gradient checkpointing | Not needed at this scale | Activation memory is linear in depth |
+| RoPE, SwiGLU, RMSNorm | Wanted the canonical GPT-2 architecture, clearly | Slightly better loss per parameter |
 
-### Engine limitations
+Engine limits. No in-place ops and no version counter to catch a buffer
+mutated after being taped. No second derivatives. CPU and float32 only. No special
+tokens, so the model trains on one continuous stream, which is fine for a single
+work and wrong for a multi-document corpus. BPE training holds the corpus in
+memory, fine at 1 MB and not at 1 GB.
 
-- **No in-place operations** and no version counter to detect a buffer mutated
-  after being recorded on the tape.
-- **No second derivatives** — the graph is not itself differentiable.
-- **CPU only, float32.** A training step is dominated by matmul, and NumPy's BLAS
-  reaches ~179 GFLOP/s here, which is close to what this CPU can do. There is no
-  large algorithmic win left without changing hardware.
-- **No special tokens** (`<bos>`/`<eos>`/`<pad>`). The model trains on one
-  continuous stream, which suits a single work but not a multi-document corpus.
-- **BPE training holds the corpus in memory** as Python objects. Fine at 1 MB;
-  a multi-gigabyte corpus would need chunked counting.
-
-### What is *not* in `.gitignore` and why
-
-Checkpoint weights (`checkpoints/*.npz`) are excluded — they are tens of
-megabytes, change completely every run, and make a repository permanently larger.
-The training command and the fixed seed reproduce them. What *is* committed is
-the evidence the run happened: `loss_curve.csv`, `loss_curve.png`,
-`run_summary.json`, and the generated samples.
-
----
+On the checkpoint weights. `checkpoints/*.npz` is gitignored: eleven
+checkpoints at ~11 MB each, completely different every run, and a binary in git
+history is there forever. The training command and the fixed seed reproduce them.
+What is committed is the evidence, `loss_curve.csv`, `loss_curve.png`,
+`run_summary.json` and the generated samples, which keeps the repo at 657 KB.
 
 ## License
 

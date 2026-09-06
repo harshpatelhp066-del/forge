@@ -1,9 +1,9 @@
 """Neural network primitives, built entirely on the Phase 1 Tensor.
 
-Nothing in this file reaches past :mod:`forge.tensor` for a derivative.  Every
+Nothing in this file reaches past :mod:`forge.tensor` for a derivative. Every
 layer is composed from ops that the autodiff engine already knows how to
 differentiate, which means the gradient of a LayerNorm or a multi-head attention
-block is assembled by the engine rather than hand-derived here -- the certified
+block is assembled by the engine rather than hand-derived here, the certified
 op gradients from Phase 1 are what make that safe.
 """
 
@@ -184,7 +184,7 @@ class Linear(Module):
     """Dense layer: ``y = x @ W + b``.
 
     The weight is stored ``(in_features, out_features)`` so the forward pass is a
-    plain right-multiply with no transpose -- one fewer op on the tape than the
+    plain right-multiply with no transpose, one fewer op on the tape than the
     PyTorch convention, and the batched-matmul gradient from Phase 1 covers it
     for any number of leading batch dimensions.
     """
@@ -223,7 +223,7 @@ class Embedding(Module):
 class LayerNorm(Module):
     """Normalise the last dimension to zero mean and unit variance, then affine.
 
-    Built from ``mean``, ``sub``, ``mul``, ``sqrt`` and ``div`` -- the backward
+    Built from ``mean``, ``sub``, ``mul``, ``sqrt`` and ``div``, the backward
     pass (which is genuinely fiddly to derive by hand, because mean and variance
     both depend on every element) falls out of the engine.
 
@@ -254,9 +254,9 @@ class Dropout(Module):
     """Inverted dropout.
 
     Scaling by ``1/(1-p)`` at *training* time means evaluation is an exact
-    identity -- no rescaling to remember, and no train/eval mismatch if someone
+    identity, no rescaling to remember, and no train/eval mismatch if someone
     forgets to call ``.eval()``... except that they would then still be dropping
-    units.  Hence the explicit train/eval tests in Phase 2.
+    units. Hence the explicit train/eval tests in Phase 2.
     """
 
     def __init__(self, p: float = 0.1):
@@ -280,11 +280,11 @@ def softmax_composed(x: Tensor, axis: int = -1) -> Tensor:
     """Numerically stable softmax, composed from primitives.
 
     ``exp`` overflows in float32 above ~88, and attention logits routinely exceed
-    that, so the row max is subtracted first.  Softmax is invariant to that shift,
+    that, so the row max is subtracted first. Softmax is invariant to that shift,
     ``softmax(x) == softmax(x - c)``, so the result is unchanged.
 
     The max is taken on the raw NumPy buffer, i.e. treated as a constant rather
-    than differentiated through.  That is not an approximation: the shift cancels
+    than differentiated through. That is not an approximation: the shift cancels
     exactly in the forward value, so its derivative contribution is exactly zero.
     Detaching just avoids putting a ``max`` node and its scatter on the tape.
 
@@ -304,7 +304,7 @@ def softmax(x: Tensor, axis: int = -1) -> Tensor:
     applied to are the largest tensors in the model at ``(B, H, T, T)``.
 
     The backward is the standard softmax Jacobian-vector product,
-    ``dx = y ⊙ (g - Σ(g ⊙ y))``, derived from ``∂yᵢ/∂xⱼ = yᵢ(δᵢⱼ - yⱼ)``.  Writing
+    ``dx = y ⊙ (g - Σ(g ⊙ y))``, derived from ``∂yᵢ/∂xⱼ = yᵢ(δᵢⱼ - yⱼ)``. Writing
     it directly rather than composing it also avoids materialising the
     intermediate adjoints, and it is certified against finite differences in the
     Phase 2 tests exactly like every primitive in Phase 1.
@@ -325,7 +325,7 @@ def log_softmax(x: Tensor, axis: int = -1) -> Tensor:
     """Stable ``log(softmax(x))``.
 
     Computed as ``z - log(sum(exp(z)))`` with ``z = x - max(x)`` rather than by
-    taking the log of a softmax.  Softmax underflows to exactly 0.0 for
+    taking the log of a softmax. Softmax underflows to exactly 0.0 for
     sufficiently negative logits, and ``log(0)`` is ``-inf``; this form never
     forms the small probability in the first place, so the loss stays finite even
     when the model is confidently wrong.
@@ -358,8 +358,8 @@ def gelu(x: Tensor) -> Tensor:
     """GELU (tanh approximation) as a single fused op.
 
     Identical in value to :func:`gelu_composed`, but it retains one buffer
-    instead of nine.  GELU is applied to the ``(B, T, 4·d_model)`` feed-forward
-    expansion -- the widest activation in the model -- so the composed form's
+    instead of nine. GELU is applied to the ``(B, T, 4·d_model)`` feed-forward
+    expansion, the widest activation in the model, so the composed form's
     chain of temporaries was the single largest consumer of graph memory,
     measured at ~30% of the total.
 
@@ -368,7 +368,7 @@ def gelu(x: Tensor) -> Tensor:
         dy/dx = 0.5(1 + t) + 0.5·x·(1 - t²)·c·(1 + 3kx²)
 
     the first term being the derivative of the ``0.5x`` factor and the second the
-    chain rule through ``tanh``.  Certified against finite differences alongside
+    chain rule through ``tanh``. Certified against finite differences alongside
     every other op.
     """
     a = x
@@ -394,7 +394,7 @@ def cross_entropy(logits: Tensor, targets, ignore_index: int | None = None) -> T
     """Mean negative log-likelihood over a batch of next-token predictions.
 
     ``logits`` is ``(..., vocab)``; ``targets`` holds integer class ids with the
-    matching leading shape.  Uses :func:`log_softmax`, so no probability is ever
+    matching leading shape. Uses :func:`log_softmax`, so no probability is ever
     materialised and the loss cannot become ``inf`` from an underflowed softmax.
     """
     targets = np.asarray(targets.data if isinstance(targets, Tensor) else targets)
@@ -422,7 +422,7 @@ def cross_entropy(logits: Tensor, targets, ignore_index: int | None = None) -> T
 
 # Fill value for masked attention logits.  -1e9 rather than -inf: a row that is
 # entirely masked would make softmax produce 0/0 = NaN with -inf, whereas -1e9
-# degrades to a uniform distribution.  Causal masking never produces such a row
+# degrades to a uniform distribution. Causal masking never produces such a row
 # (position i can always see itself), but the finite constant means a future
 # padding mask cannot silently poison the whole batch with NaN.  After the max
 # subtraction in softmax, exp(-1e9) underflows to exactly 0.0, so the masked
@@ -433,9 +433,9 @@ NEG_INF = -1e9
 def causal_mask(seq_len: int) -> np.ndarray:
     """``(1, 1, T, T)`` boolean mask, True where attention must be blocked.
 
-    Entry ``[i, j]`` is True when ``j > i`` -- strictly-upper-triangular -- so a
+    Entry ``[i, j]`` is True when ``j > i``, strictly-upper-triangular, so a
     query at position ``i`` may attend to keys at ``0..i`` inclusive and nothing
-    later.  The diagonal is False: a token always sees itself.
+    later. The diagonal is False: a token always sees itself.
     """
     return np.triu(np.ones((seq_len, seq_len), dtype=bool), k=1)[None, None, :, :]
 

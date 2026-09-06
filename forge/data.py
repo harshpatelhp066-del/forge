@@ -1,7 +1,7 @@
 """Batching a token stream into (input, target) pairs for next-token prediction.
 
 The task is: given tokens ``x[0..T-1]``, predict ``x[1..T]``. So a training
-example is a window of the corpus and its own one-position shift -- every
+example is a window of the corpus and its own one-position shift, every
 position in the window contributes a prediction, which is why a decoder-only
 transformer gets `T` training signals per sequence rather than one.
 """
@@ -85,7 +85,7 @@ class DataLoader:
         """Vectorised window gather: offsets -> (B, T) inputs and (B, T) targets."""
         idx = offsets[:, None] + np.arange(self.block_size + 1)[None, :]
         windows = data[idx]                       # (B, T+1)
-        return windows[:, :-1], windows[:, 1:]    # x, y -- y is x shifted by one
+        return windows[:, :-1], windows[:, 1:]    # x, y, y is x shifted by one
 
     def random_batch(self, split: str = "train", batch_size: int | None = None):
         """Sample a batch of windows uniformly at random, with replacement.
@@ -107,7 +107,7 @@ class DataLoader:
         ``stride`` defaults to ``block_size``, giving non-overlapping windows so
         that one pass sees each token exactly once. The window *order* is
         shuffled, which is what stops consecutive batches from being consecutive
-        text -- correlated batches make the gradient estimate correlated too, and
+        text, correlated batches make the gradient estimate correlated too, and
         Adam's second-moment estimate then tracks a moving target.
         """
         data = self._split(split)

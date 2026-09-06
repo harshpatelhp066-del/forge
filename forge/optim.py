@@ -61,7 +61,7 @@ class Adam(Optimizer):
         θ  ← θ - lr · m̂ / (√v̂ + ε)
 
     **The bias correction is not optional.** ``m`` and ``v`` start at zero, so
-    early estimates are biased towards zero -- at ``t=1`` with β₂=0.999, the raw
+    early estimates are biased towards zero, at ``t=1`` with β₂=0.999, the raw
     ``v`` is a thousand times smaller than the true second moment. Without the
     correction, the very first steps take an enormous effective learning rate
     (``m/√v`` is roughly ``1/√(1-β₂) ≈ 31``× too large), which is exactly when a
@@ -71,7 +71,7 @@ class Adam(Optimizer):
     ``eps`` sits *outside* the square root, matching the original paper. Inside,
     it would be a floor on the variance rather than on the divisor and would not
     bound the step size when ``v̂`` is genuinely zero (a parameter whose gradient
-    has been exactly zero so far -- e.g. an embedding row for a token that has
+    has been exactly zero so far, e.g. an embedding row for a token that has
     not appeared yet).
 
     Weight decay is decoupled (AdamW): applied straight to the parameter rather
@@ -144,7 +144,7 @@ def clip_grad_norm(parameters, max_norm: float) -> float:
     each tensor separately would change the update's *direction*, not just its
     length. Scaling everything by one shared factor preserves direction exactly.
 
-    Returns the pre-clip norm, which is worth logging -- a sudden spike is the
+    Returns the pre-clip norm, which is worth logging, a sudden spike is the
     earliest visible symptom of a training run about to diverge.
     """
     total_sq = 0.0
@@ -159,7 +159,7 @@ def clip_grad_norm(parameters, max_norm: float) -> float:
         # An inf or NaN gradient cannot be rescaled into a useful one: scaling by
         # max_norm/inf = 0 would turn every inf into NaN and quietly corrupt the
         # buffers. Leave them exactly as they are and report the non-finite norm,
-        # so the caller can skip the step -- which the training loop does.
+        # so the caller can skip the step, which the training loop does.
         return total_norm
 
     if max_norm is not None and total_norm > max_norm:

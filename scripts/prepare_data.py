@@ -2,7 +2,7 @@
 
     python scripts/prepare_data.py --vocab-size 1024
 
-Corpus: tiny-shakespeare (1.1 MB, public domain -- the works of Shakespeare).
+Corpus: tiny-shakespeare (1.1 MB, public domain, the works of Shakespeare).
 Downloaded on demand rather than committed; see .gitignore for the reasoning.
 """
 

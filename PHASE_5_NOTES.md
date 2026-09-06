@@ -1,4 +1,4 @@
-# Phase 5 — Training and generation
+# Phase 5: Training and generation
 
 Files: [`forge/train.py`](forge/train.py), [`scripts/train.py`](scripts/train.py),
 [`scripts/generate.py`](scripts/generate.py),
@@ -23,24 +23,24 @@ Files: [`forge/train.py`](forge/train.py), [`scripts/train.py`](scripts/train.py
 | Architecture | 4 layers, 4 heads, d_model 128, d_ff 512, context 128 |
 | Training | 2500 steps × 32 × 128 = 10.2M tokens (24.7 epochs) |
 | Uniform baseline | ln(1024) = 6.9315 |
-| Final train / val | **3.0967** / **3.5931** |
-| Best val | **3.5931** |
+| Final train / val | 3.0967 / 3.5931 |
+| Best val | 3.5931 |
 | Wall clock | 1h59m on CPU (2.87 s/step) |
 
 ![loss curve](checkpoints/loss_curve.png)
 
 ## Verification status
 
-**35/35 Phase 5 tests pass** (436 total across all phases).
+35/35 Phase 5 tests pass (436 total across all phases).
 
 - **Schedule**: warmup is linear and reaches exactly `base_lr` at its end; the
   cosine midpoint sits exactly halfway between base and floor; the rate is
   monotone after the peak, never negative, clamped past `total_steps`, and the
   floor is a ratio of base rather than zero. Impossible configurations raise.
 - **Checkpointing**: a round-trip reproduces logits *exactly*; optimizer state
-  round-trips such that a resumed run takes a **bit-identical** next step to an
+  round-trips such that a resumed run takes a bit-identical next step to an
   uninterrupted one; the write is atomic; and a checkpoint carries enough config
-  to rebuild the model without being told the architecture — which is what
+  to rebuild the model without being told the architecture, which is what
   `generate.py` relies on.
 - **Evaluation**: runs in eval mode (dropout off) and restores the previous mode;
   builds no graph and leaves no gradients; is reproducible for a fixed seed; and
@@ -53,9 +53,9 @@ Files: [`forge/train.py`](forge/train.py), [`scripts/train.py`](scripts/train.py
 - **Fused ops** (see below) match their composed reference in both value and
   gradient, and pass the finite-difference checker.
 
-## The bug that killed the first run
+## The OOM at step 103
 
-The first full training run died at **step 103** with
+The first full training run died at step 103 with
 `_ArrayMemoryError: Unable to allocate 8.00 MiB`. The loss had been falling
 cleanly (6.93 → 4.82), so this was purely a memory failure.
 
@@ -63,7 +63,7 @@ Three things were wrong, found in this order.
 
 ### 1. Profiling first: where does graph memory actually go?
 
-Rather than guess, the graph was walked from the loss node and every retained
+The graph was walked from the loss node and every retained
 buffer totalled by operation. For a batch of 8×128 through a 4-layer, `d=192`
 model:
 
@@ -78,8 +78,8 @@ sub                15     26.8    7.0
 ```
 
 `mul` dominating at 30% was the clue. GELU, composed from primitives, builds
-**nine** full-width temporaries (`x*x`, `x*x*x`, `·0.044715`, `+x`, `·c`, `tanh`,
-`+1`, `·0.5`, `·x`) — and it is applied to the `(B, T, 4·d_model)` feed-forward
+nine full-width temporaries (`x*x`, `x*x*x`, `·0.044715`, `+x`, `·c`, `tanh`,
+`+1`, `·0.5`, `·x`), and it is applied to the `(B, T, 4·d_model)` feed-forward
 expansion, the widest activation in the model. Softmax added four more at
 `(B, H, T, T)`.
 
@@ -92,21 +92,21 @@ d(gelu)/dx = 0.5(1 + t) + 0.5·x·(1 − t²)·c·(1 + 3kx²)
 d(softmax)/dx = y ⊙ (g − Σ(g ⊙ y))
 ```
 
-This is not a departure from "built on the engine" — it is the same thing `exp`
-and `tanh` already are: a primitive with a hand-written adjoint. And it is held
+This is the same thing `exp` and `tanh` already are: a primitive with a
+hand-written adjoint, so it does not step outside "built on the engine". And it is held
 to the same standard: both are certified against finite differences *and*
 asserted equal in value and gradient to the composed versions, which are kept in
-the codebase as the reference. Result: **381 → 260 MiB**, a 32% cut.
+the codebase as the reference. Result: 381 → 260 MiB, a 32% cut.
 
 ### 2. Intermediate gradients were never freed
 
 `backward()` accumulated `.grad` on every node and kept it. But an intermediate's
-adjoint is read exactly once — by its own backward closure, to push into its
-parents — so holding it afterwards achieves nothing while roughly doubling peak
+adjoint is read exactly once, by its own backward closure, to push into its
+parents, so holding it afterwards achieves nothing while roughly doubling peak
 memory, since gradient buffers are the same size as the activations they shadow.
 
 **Fix**: free each intermediate's `.grad` immediately after its closure runs.
-Leaves (inputs and parameters) always keep theirs — they have no closure and are
+Leaves (inputs and parameters) always keep theirs, they have no closure and are
 what the optimizer reads. `retain_grads=True` restores the old behaviour for
 debugging. A test asserts leaf gradients are bit-identical either way.
 
@@ -124,11 +124,11 @@ out._backward = make_bw(out)
 
 Every node therefore held `tensor → closure → tensor`. **Reference counting can
 never break a cycle.** So dropping `loss` at the end of a step freed nothing; the
-entire graph — every activation buffer in it — survived until Python's cyclic
+entire graph, every activation buffer in it, survived until Python's cyclic
 collector happened to run. With multi-megabyte activations, memory outran the
 collector.
 
-This was confirmed rather than assumed, by inspecting a closure's cells:
+Confirmed by inspecting a closure's cells:
 
 ```
 closure captures: ['Tensor', 'Tensor', 'Tensor']
@@ -140,7 +140,7 @@ after gc.collect():      -4 objects alive
 
 **Fix**: backward functions take the gradient as an argument,
 `node._backward(g)`, so a closure captures only its parents and cached forward
-values — never its own output. No cycle, so a graph is released by reference
+values, never its own output. No cycle, so a graph is released by reference
 counting the moment the loss goes out of scope. As a bonus this deleted a layer
 of nesting from all 26 ops.
 
@@ -164,36 +164,36 @@ Two regression tests now guard this: one asserts no backward closure captures it
 own output, and one runs 30 graphs with the collector disabled and asserts fewer
 than 50 objects survive.
 
-**The lesson worth keeping**: in a framework where nodes hold closures, the
+**Takeaway: **: in a framework where nodes hold closures, the
 closure's capture list is part of the memory design. This is why PyTorch's
 `Function` receives `grad_output` as an argument instead of reading it off the
-output node — a detail that looks like style until you build one yourself.
+output node, a detail that looks like style until you build one yourself.
 
-## Other real tradeoffs
+## Other notes
 
 ### Warmup is not optional
 
-Adam's second-moment estimate `v` is meaningless for the first few dozen steps —
-an average over a handful of gradients from a randomly initialised model — so
+Adam's second-moment estimate `v` is meaningless for the first few dozen steps: it is
+an average over a handful of gradients from a randomly initialised model, so
 `1/√v̂` is a badly scaled step in a direction that is mostly noise. Warming up
 from ~0 keeps those steps small enough not to matter. 150 warmup steps out of
-2500, then cosine decay to a **floor of 10% of base**, not to zero: a zero
+2500, then cosine decay to a floor of 10% of base, not to zero: a zero
 terminal rate wastes the final steps entirely.
 
 Cosine over step decay because a step introduces a discontinuity that shows up as
 a visible kink in the loss curve; over linear because linear spends too long at
 large rates.
 
-### Gradient clipping is global, and non-finite norms are not clipped
+### Gradient clipping
 
-Clipping rescales by one shared factor computed from the **global** L2 norm over
+Clipping rescales by one shared factor computed from the global L2 norm over
 all parameters concatenated, so the update's direction is preserved exactly and
 only its length changes. Per-tensor clipping would change the direction.
 
 An edge case surfaced in testing: if the norm is `inf`, then
-`scale = max_norm/inf = 0`, and `inf × 0 = NaN` — a naive clip converts one bad
+`scale = max_norm/inf = 0`, and `inf × 0 = NaN`, a naive clip converts one bad
 entry into a whole tensor of NaN. `clip_grad_norm` now returns the non-finite
-norm and leaves gradients **untouched**, and the training loop skips the step.
+norm and leaves gradients untouched, and the training loop skips the step.
 One `inf` reaching the optimizer would turn every parameter it touches into NaN,
 and the run would never recover. Tested for `inf`, `-inf` and `nan`.
 
@@ -210,11 +210,11 @@ without being told the architecture.
 
 Writes go to a temporary file and are then renamed, so an interrupted save cannot
 leave a truncated checkpoint where a valid one used to be. The first version of
-this was broken: `np.savez` **silently appends `.npz`** to a filename that lacks
+this was broken: `np.savez` silently appends `.npz` to a filename that lacks
 it, so writing to `best.npz.tmp` actually produced `best.npz.tmp.npz` and the
 rename failed with `FileNotFoundError`. Fixed by opening the file handle
 explicitly. Caught immediately because it fired on the first checkpoint of the
-pilot run — which is the argument for doing a short pilot before a long run.
+pilot run, which is the argument for doing a short pilot before a long run.
 
 ### Validation is measured on fixed batches
 
@@ -235,13 +235,13 @@ float32 loses the ordering of near-tied candidates; the cast costs one
 surviving probabilities renormalise to sum to 1 rather than being a truncated,
 sub-normalised slice.
 
-### Small operational things that mattered
+### Small things that mattered
 
 - **The CSV is flushed every row.** A run that dies at step 1800 of 2500 should
   still leave a usable loss curve.
 - **stdout is forced to UTF-8.** An untrained model emits random bytes, which
   decode to U+FFFD, which the default Windows console codepage (cp1252) cannot
-  encode — printing the first sample crashed the run before this was fixed.
+  encode, printing the first sample crashed the run before this was fixed.
 - **A 60-step pilot run before the real one.** It caught the `np.savez` bug and
   the encoding bug in three minutes rather than an hour in.
 
@@ -249,7 +249,7 @@ sub-normalised slice.
 
 - No KV-cache, so generation recomputes the whole prefix each step.
 - No gradient accumulation across micro-batches, so batch size is bounded by RAM
-  (the engine supports it — `.grad` accumulates until zeroed — but the loop does
+  (the engine supports it, `.grad` accumulates until zeroed, but the loop does
   not expose it).
 - No early stopping; the best-validation checkpoint is saved separately instead.
 - No prefetching: batches are gathered synchronously with the training step
@@ -258,8 +258,8 @@ sub-normalised slice.
 ## `--resume`, and why it exists
 
 The first attempt at the 2500-step run was killed at step 1884 when the session
-it was running under was torn down. Nothing was corrupted — the CSV had flushed
-every row and checkpoints existed every 250 steps — but `run_summary.json`, the
+it was running under was torn down. Nothing was corrupted, the CSV had flushed
+every row and checkpoints existed every 250 steps, but `run_summary.json`, the
 plot and `final.npz` are only written at the end, so none of them existed.
 
 Rather than throw away 1884 steps, `scripts/train.py` gained `--resume`. Four
