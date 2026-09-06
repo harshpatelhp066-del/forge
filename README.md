@@ -330,6 +330,7 @@ usually the more instructive part:
 - [Phase 3 — Transformer architecture](PHASE_3_NOTES.md)
 - [Phase 4 — Tokenizer and data pipeline](PHASE_4_NOTES.md)
 - [Phase 5 — Training and generation](PHASE_5_NOTES.md)
+- [Phase 6 — Polish and delivery](PHASE_6_NOTES.md)
 
 ---
 
